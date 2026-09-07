@@ -52,6 +52,42 @@ function daysIn(text: string): number {
   return 7;
 }
 
+/** كل النطاقات المذكورة في الرسالة (لفصل موقع المستخدم عن منافسيه). */
+function domainsIn(text: string): string[] {
+  const re = /(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:\/\S*)?/gi;
+  const out: string[] = [];
+  for (const m of text.matchAll(re)) {
+    const d = (m[1] ?? "").toLowerCase().replace(/^www\./, "");
+    if (d && !out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+const STOP =
+  /^(عايز|عاوز|أريد|اريد|من|في|على|علي|إلى|الى|عن|مع|هذا|هذه|ذلك|اللي|الذي|التي|كل|كام|إيه|ايه|ازاي|إزاي|كيف|ليه|لماذا|هو|هي|أنا|انا|لي|لك|موقعي|موقع|خلال|يوم|شهر|سنة|جوجل|google|seo|سيو|خطة|واكتبلي|اكتبلي|هات|شوف|افحص|قارني|قارن|حدد|بحث|و|أو|او|ثم)$/i;
+
+const COUNTRY_WORD: Record<string, string> = {
+  EG: "مصر", SA: "السعودية", AE: "الإمارات", KW: "الكويت", QA: "قطر", OM: "عمان",
+  BH: "البحرين", JO: "الأردن", MA: "المغرب", DZ: "الجزائر", TN: "تونس", IQ: "العراق",
+};
+function countryWord(code?: string | null): string {
+  return code ? (COUNTRY_WORD[code.toUpperCase()] ?? "") : "";
+}
+
+/** بذرة بحث بشرية من نص الرسالة (لا اسم النطاق) — لأن اقتراحات جوجل لا تفهم النطاقات. */
+function topicSeed(text: string): string | null {
+  const cleaned = text
+    .replace(/(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/gi, " ")
+    .replace(/[«»"“”'(),.:؛;!؟?\-–—|]/g, " ");
+  const words = cleaned
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 2 && !STOP.test(w) && !/^\d+$/.test(w));
+  if (words.length < 2) return null;
+  return words.slice(0, 5).join(" ");
+}
+
+
 export async function runChatTools(
   admin: Admin,
   params: {
@@ -63,6 +99,9 @@ export async function runChatTools(
     connected: string[];
     /** المنصات التي طلبها المستخدم صراحةً. */
     targets: string[];
+    /** مجال النشاط واسم العلامة — أدق بذرة بحث من اسم النطاق. */
+    industry?: string | null;
+    brand?: string | null;
   },
 ): Promise<ChatToolResult[]> {
   const text = params.message;
@@ -73,184 +112,275 @@ export async function runChatTools(
 
   // ---------- نور (SEO) ----------
   if (params.employeeId === "nour") {
-    const wantsAudit = /فحص|افحص|تدقيق|audit|مشاكل (السيو|الصفحة)|سرعة الموقع|تحليل (الموقع|الصفحة|صفحة)/i.test(text);
-    const url = urlIn(text, params.website);
-    if (wantsAudit && url && left() > 8000) {
-      try {
-        const { auditPage } = await import("./seo-audit.server");
-        const a = await auditPage(url);
-        const fails = a.checks.filter((c) => c.status !== "pass").slice(0, 10);
-        out.push({
-          tool: "seo-audit",
-          block: [
-            `### نتيجة فحص سيو حقيقي للصفحة ${a.finalUrl} (نُفّذ الآن)`,
-            `الدرجة: ${a.score}/100 · زمن الاستجابة: ${a.fetchedMs}ms · العنوان: «${a.page.title || "—"}» (${a.page.title.length} حرف) · الوصف: ${a.page.description ? `${a.page.description.length} حرف` : "مفقود"} · H1: ${a.page.h1.length} · الكلمات: ${a.page.wordCount} · صور بلا alt: ${a.page.imagesMissingAlt}/${a.page.images} · اللغة: ${a.page.lang || "—"}`,
-            ...fails.map((c) => `- [${c.status === "fail" ? "خطأ" : "تحذير"}] ${c.label}: ${c.detail}${c.fix ? ` → الحل: ${c.fix}` : ""}`),
-            "اعرض هذه النتائج للمستخدم كما هي (أرقام حقيقية) مرتبة حسب الأثر، مع خطوات إصلاح عملية.",
-          ].join("\n"),
-          footer: "التقرير الكامل بالـ16 فحصاً في قسم «التقارير».",
-        });
-      } catch (e) {
-        out.push({ tool: "seo-audit", block: `تعذّر فحص ${url}: ${e instanceof Error ? e.message : "خطأ"} — أخبر المستخدم بصراحة.`, footer: "" });
-      }
-    }
+    const ownHost = hostOf(urlIn("", params.website));
+    const rivalHosts = domainsIn(text).filter((d) => d !== ownHost).slice(0, 2);
+    const explicitUrl = urlIn(text, null);
+    const url = explicitUrl && hostOf(explicitUrl) === ownHost ? explicitUrl : (params.website ?? explicitUrl);
+    // ترتيب ذكي للبذرة: كلمة صريحة من المستخدم ← نشاط العلامة وسوقها ← نص الرسالة ← النطاق.
+    const marketWord = countryWord(params.country);
+    const topic =
+      keywordIn(text) ??
+      (params.industry ? `${params.industry}${marketWord ? ` ${marketWord}` : ""}` : null) ??
+      topicSeed(text) ??
+      ownHost;
 
-    const wantsRank = /ترتيب|رانك|rank|موقعي في جوجل|الصفحة الأولى|أي صفحة/i.test(text);
-    const kw = keywordIn(text);
-    const domain = hostOf(urlIn(text, params.website));
-    if (wantsRank && kw && domain && left() > 8000) {
-      try {
-        const { checkRank } = await import("./rank-check.server");
-        const r = await checkRank({
-          workspaceId: params.workspaceId,
-          keyword: kw,
-          domain,
-          market: (params.country ?? "EG").toUpperCase(),
-          gscConnected: params.connected.includes("search-console"),
-        });
-        out.push({
-          tool: "rank-check",
-          block: [
-            `### ترتيب حقيقي لكلمة «${kw}» للنطاق ${domain} (المصدر: ${r.source})`,
-            r.position ? `الموقع يظهر في المركز ${r.position}${r.url ? ` عبر ${r.url}` : ""}.` : "الموقع لا يظهر في أول 100 نتيجة لهذه الكلمة.",
-            r.clicks !== undefined ? `نقرات: ${r.clicks} · ظهور: ${r.impressions ?? 0} (Search Console)` : "",
-            r.competitors.length ? `من يتصدّر: ${r.competitors.map((c) => `#${c.position} ${c.host}`).join("، ")}` : "",
-            r.note ?? "",
-            "لا تخترع أرقاماً أخرى؛ ابنِ التوصيات على هذه النتيجة فقط.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          footer: "تابع هذه الكلمة أسبوعياً من قسم «الترتيب».",
-        });
-      } catch (e) {
-        out.push({ tool: "rank-check", block: `تعذّر فحص الترتيب: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" });
-      }
-    }
-
-    // بحث كلمات مفتاحية حقيقي (اقتراحات جوجل/بينج + تقدير الطلب والصعوبة)
-    const wantsKeywords =
-      /كلمات? مفتاحية|كلمات بحث|بحث كلمات|أفكار كلمات|keyword|الناس بتدور|الناس يبحثون|استعلامات/i.test(text);
-    const seed = keywordIn(text) ?? (params.website ? hostOf(params.website) : null);
-    if (wantsKeywords && seed && left() > 10_000) {
-      try {
-        const { keywordExpansion, keywordMetrics, withBudget } = await import("./seo-research.server");
-        const [exp, metric] = await Promise.all([
-          withBudget(keywordExpansion(seed), 12_000, null as never),
-          withBudget(keywordMetrics(seed), 12_000, null as never),
-        ]);
-        const groups = exp
-          ? Object.entries(exp as unknown as Record<string, unknown>)
-              .filter(([, v]) => Array.isArray(v) && (v as unknown[]).length)
-              .slice(0, 6)
-              .map(([k, v]) => `- ${k}: ${(v as string[]).slice(0, 12).join("، ")}`)
-          : [];
-        out.push({
-          tool: "keyword-research",
-          block: [
-            `### بحث كلمات حقيقي لـ«${seed}» (اقتراحات جوجل وبينج الحيّة — نُفّذ الآن)`,
-            metric
-              ? `مؤشر الطلب: ${metric.demandScore}/100 · عمق الاقتراحات: ${metric.suggestionDepth} · الصعوبة: ${metric.difficultyScore ?? "غير متاح"} · المتصدرون: ${metric.topDomains.slice(0, 6).join("، ") || "—"}`
-              : "",
-            ...groups,
-            "رتّب الكلمات حسب نية البحث (معلوماتية/تجارية/شرائية) واقترح صفحة مستهدفة لكل مجموعة. لا تخترع أحجام بحث.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          footer: "تابع أي كلمة أسبوعياً من قسم «الترتيب».",
-        });
-      } catch (e) {
-        out.push({ tool: "keyword-research", block: `تعذّر بحث الكلمات: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" });
-      }
-    }
-
-    // موجز محتوى مبني على المتصدرين فعلياً
-    const wantsBrief =
-      /موجز محتوى|خطة مقال|أكتب مقال|اكتب مقال|كيف أتفوق|هيكل مقال|outline|content brief|ماذا يحتوي المقال/i.test(text);
-    const briefQuery = keywordIn(text) ?? seed;
-    if (wantsBrief && briefQuery && left() > 12_000) {
-      try {
-        const { contentBrief, withBudget } = await import("./seo-research.server");
-        const b = await withBudget(contentBrief(briefQuery, params.website ?? undefined), 18_000, null as never);
-        if (b && b.analyzed) {
-          out.push({
-            tool: "content-brief",
-            block: [
-              `### موجز محتوى حقيقي لـ«${b.query}» (حُلّل ${b.analyzed} من المتصدرين الآن)`,
-              `متوسط الطول: ${b.medianWordCount} كلمة · الطول المستهدف: ${b.targetWordCount} كلمة · تغطية البيانات المنظمة: ${b.schemaCoverage}%`,
-              b.headingIdeas.length ? `عناوين فرعية متكررة: ${b.headingIdeas.slice(0, 12).join(" | ")}` : "",
-              b.commonTerms.length ? `مصطلحات لازمة: ${b.commonTerms.slice(0, 15).map((t) => t.term).join("، ")}` : "",
-              b.entityGaps.length ? `فجوات لا يغطيها المنافسون: ${b.entityGaps.slice(0, 10).join("، ")}` : "",
-              b.competitors.map((c) => `- ${c.title} (${c.words} كلمة · ${c.h2} عنوان) ${c.url}`).join("\n"),
-              "ابنِ الهيكل على هذه الأرقام الحقيقية، ثم اكتب المقال كاملاً إن طلبه المستخدم.",
-            ]
-              .filter(Boolean)
-              .join("\n"),
-            footer: "",
-          });
-        }
-      } catch {
-        /* لا شيء */
-      }
-    }
-
-    // جرد منافس حقيقي من خرائط موقعه
-    const wantsCompetitor = /منافس|المنافسين|competitor|من يتفوق علي|قارن موقعي/i.test(text);
-    const rival = hostOf(urlIn(text, null)) ?? null;
-    if (wantsCompetitor && left() > 10_000) {
-      try {
-        const { competitorInventory, serpSearch, withBudget } = await import("./seo-research.server");
-        const target = rival ?? hostOf(params.website ?? null);
-        if (target) {
-          const inv = await withBudget(competitorInventory(target), 14_000, null as never);
-          const serp = keywordIn(text)
-            ? await withBudget(serpSearch(keywordIn(text)!), 10_000, [])
-            : [];
-          out.push({
-            tool: "competitors",
-            block: [
-              `### جرد حقيقي للنطاق ${target} (من robots.txt وخرائط الموقع)`,
-              inv ? `عدد الروابط المكتشفة: ${inv.urlCount} · خرائط: ${inv.sitemaps.slice(0, 3).join("، ") || "—"}` : "",
-              inv?.topics.length ? `أبرز المحاور: ${inv.topics.slice(0, 15).join("، ")}` : "",
-              inv?.samples.length ? inv.samples.slice(0, 10).map((s) => `- ${s.slug}`).join("\n") : "",
-              serp.length ? `المتصدرون للاستعلام: ${serp.slice(0, 8).map((r) => `#${r.rank} ${r.url}`).join(" | ")}` : "",
-              "استخرج فجوات المحتوى مقارنةً بموقع المستخدم، واقترح صفحات جديدة محددة.",
-            ]
-              .filter(Boolean)
-              .join("\n"),
-            footer: "",
-          });
-        }
-      } catch {
-        /* لا شيء */
-      }
-    }
-
-    // أداء الموقع الفعلي من Search Console
-    const wantsGsc =
-      /سيرش كونسول|search console|أداء (الموقع|السيو|الصفحات)|نقرات|ظهور|impressions|أكثر (الكلمات|الصفحات)|بياناتي في جوجل/i.test(
+    /** طلب استراتيجي شامل: نشغّل كل الأدوات معاً بدل انتظار أن يطلبها المستخدم واحدة واحدة. */
+    const bigAsk =
+      /خطة|استراتيجية|أتصدر|اتصدر|تصدر|أهيمن|شامل|كل ?شي|من الصفر|٩٠|90 ?يوم|روتين|أزيد الزيارات|زيادة الزيارات/i.test(
         text,
       );
-    if (wantsGsc && left() > 8000) {
-      try {
-        const { gscSnapshotDetailed } = await import("./gsc.functions");
-        const g = await gscSnapshotDetailed(params.workspaceId, 28);
-        out.push({
-          tool: "gsc",
-          block: g.snapshot
-            ? [
-                `### أداء حقيقي من Search Console (${g.snapshot.site} · ${g.snapshot.range.start} → ${g.snapshot.range.end})`,
-                `أكثر الكلمات: ${g.snapshot.queries.slice(0, 10).map((q) => `${q.key} (${q.clicks} نقرة · ${q.impressions} ظهور · مركز ${q.position.toFixed(1)})`).join(" | ")}`,
-                `أكثر الصفحات: ${g.snapshot.pages.slice(0, 8).map((p) => `${p.key} (${p.clicks} نقرة)`).join(" | ")}`,
-                "ابنِ توصياتك على هذه الأرقام فقط: صفحات قريبة من الصفحة الأولى، كلمات ظهور عالٍ بنقرات منخفضة (عناوين تحتاج تحسيناً).",
-              ].join("\n")
-            : `Search Console: ${g.status.message} — أخبر المستخدم بصراحة واعرض ربطه الآن من قسم «الترتيب» أو «التقارير».`,
-          footer: g.snapshot ? "التفاصيل الكاملة في «التقارير»." : "",
-        });
-      } catch (e) {
-        out.push({ tool: "gsc", block: `تعذّر جلب بيانات Search Console: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" });
+
+    const wantsAudit =
+      bigAsk || /فحص|افحص|تدقيق|audit|مشاكل (السيو|الصفحة)|سرعة الموقع|تحليل (الموقع|الصفحة|صفحة)/i.test(text);
+    const wantsRank = /ترتيب|رانك|rank|موقعي في جوجل|الصفحة الأولى|أي صفحة/i.test(text);
+    const wantsKeywords =
+      bigAsk || /كلمات? مفتاحية|كلمات بحث|بحث كلمات|أفكار كلمات|keyword|الناس بتدور|الناس يبحثون|استعلامات/i.test(text);
+    const wantsBrief =
+      /موجز محتوى|خطة مقال|أكتب مقال|اكتب مقال|اكتبلي|كيف أتفوق|هيكل مقال|outline|content brief|ماذا يحتوي المقال/i.test(
+        text,
+      );
+    const wantsCompetitor = bigAsk || rivalHosts.length > 0 || /منافس|المنافسين|competitor|من يتفوق علي|قارن موقعي/i.test(text);
+    const wantsGsc =
+      bigAsk ||
+      /سيرش كونسول|search console|أداء (الموقع|السيو|الصفحات)|نقرات|ظهور|impressions|أكثر (الكلمات|الصفحات)|بياناتي في جوجل|تآكل|تتآكل|تتنافس|cannibal/i.test(
+        text,
+      );
+
+    const kw = keywordIn(text);
+    const domain = hostOf(urlIn(text, params.website));
+    const jobs: Promise<ChatToolResult | null>[] = [];
+
+    if (wantsAudit && url) {
+      jobs.push(
+        (async () => {
+          try {
+            const { auditPage } = await import("./seo-audit.server");
+            const a = await auditPage(url);
+            const fails = a.checks.filter((c) => c.status !== "pass").slice(0, 10);
+            return {
+              tool: "seo-audit",
+              block: [
+                `### نتيجة فحص سيو حقيقي للصفحة ${a.finalUrl} (نُفّذ الآن)`,
+                `الدرجة: ${a.score}/100 · زمن الاستجابة: ${a.fetchedMs}ms · العنوان: «${a.page.title || "—"}» (${a.page.title.length} حرف) · الوصف: ${a.page.description ? `${a.page.description.length} حرف` : "مفقود"} · H1: ${a.page.h1.length} · الكلمات: ${a.page.wordCount} · صور بلا alt: ${a.page.imagesMissingAlt}/${a.page.images} · اللغة: ${a.page.lang || "—"}`,
+                ...fails.map((c) => `- [${c.status === "fail" ? "خطأ" : "تحذير"}] ${c.label}: ${c.detail}${c.fix ? ` → الحل: ${c.fix}` : ""}`),
+                "اعرض هذه النتائج للمستخدم كما هي (أرقام حقيقية) مرتبة حسب الأثر، مع خطوات إصلاح عملية.",
+              ].join("\n"),
+              footer: "التقرير الكامل بالـ16 فحصاً في قسم «التقارير».",
+            };
+          } catch (e) {
+            return {
+              tool: "seo-audit",
+              block: `تعذّر الوصول إلى ${url}: ${e instanceof Error ? e.message : "خطأ"} — أخبر المستخدم بصراحة أن الموقع لم يستجب، واطلب الرابط الصحيح، وأكمل باقي التحليل بما توفّر.`,
+              footer: "",
+            };
+          }
+        })(),
+      );
+    }
+
+    if (wantsRank && kw && domain) {
+      jobs.push(
+        (async () => {
+          try {
+            const { checkRank } = await import("./rank-check.server");
+            const r = await checkRank({
+              workspaceId: params.workspaceId,
+              keyword: kw,
+              domain,
+              market: (params.country ?? "EG").toUpperCase(),
+              gscConnected: params.connected.includes("search-console"),
+            });
+            return {
+              tool: "rank-check",
+              block: [
+                `### ترتيب حقيقي لكلمة «${kw}» للنطاق ${domain} (المصدر: ${r.source})`,
+                r.position ? `الموقع يظهر في المركز ${r.position}${r.url ? ` عبر ${r.url}` : ""}.` : "الموقع لا يظهر في أول 100 نتيجة لهذه الكلمة.",
+                r.clicks !== undefined ? `نقرات: ${r.clicks} · ظهور: ${r.impressions ?? 0} (Search Console)` : "",
+                r.competitors.length ? `من يتصدّر: ${r.competitors.map((c) => `#${c.position} ${c.host}`).join("، ")}` : "",
+                r.note ?? "",
+                "لا تخترع أرقاماً أخرى؛ ابنِ التوصيات على هذه النتيجة فقط.",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              footer: "تابع هذه الكلمة أسبوعياً من قسم «الترتيب».",
+            };
+          } catch (e) {
+            return { tool: "rank-check", block: `تعذّر فحص الترتيب: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" };
+          }
+        })(),
+      );
+    }
+
+    if (wantsKeywords && topic) {
+      jobs.push(
+        (async () => {
+          try {
+            const { keywordExpansion, keywordMetrics, withBudget } = await import("./seo-research.server");
+            const [exp, metric] = await Promise.all([
+              withBudget(keywordExpansion(topic), 18_000, null as never),
+              withBudget(keywordMetrics(topic), 18_000, null as never),
+            ]);
+            const groups = exp
+              ? Object.entries(exp as unknown as Record<string, unknown>)
+                  .filter(([, v]) => Array.isArray(v) && (v as unknown[]).length)
+                  .slice(0, 6)
+                  .map(([k, v]) => `- ${k}: ${(v as string[]).slice(0, 12).join("، ")}`)
+              : [];
+            const empty = !groups.length && (!metric || metric.demandScore === 0);
+            return {
+              tool: "keyword-research",
+              block: empty
+                ? `### بحث كلمات لـ«${topic}»: لم تُرجع محركات البحث اقتراحات كافية لهذه البذرة. اطلب من المستخدم جملة يبحث بها عميله فعلاً (خدمة + مدينة)، ولا تخترع أرقاماً.`
+                : [
+                    `### بحث كلمات حقيقي لـ«${topic}» (اقتراحات جوجل وبينج الحيّة — نُفّذ الآن)`,
+                    metric
+                      ? `مؤشر الطلب: ${metric.demandScore}/100 · عمق الاقتراحات: ${metric.suggestionDepth} · الصعوبة: ${metric.difficultyScore ?? "غير متاح"} · المتصدرون: ${metric.topDomains.slice(0, 6).join("، ") || "—"}`
+                      : "",
+                    ...groups,
+                    "رتّب الكلمات حسب نية البحث (معلوماتية/تجارية/شرائية) واقترح صفحة مستهدفة لكل مجموعة. لا تخترع أحجام بحث.",
+                  ]
+                    .filter(Boolean)
+                    .join("\n"),
+              footer: "تابع أي كلمة أسبوعياً من قسم «الترتيب».",
+            };
+          } catch (e) {
+            return { tool: "keyword-research", block: `تعذّر بحث الكلمات: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" };
+          }
+        })(),
+      );
+    }
+
+    if (wantsBrief && (kw ?? topic)) {
+      jobs.push(
+        (async () => {
+          try {
+            const { contentBrief, withBudget } = await import("./seo-research.server");
+            const b = await withBudget(contentBrief((kw ?? topic)!, params.website ?? undefined), 22_000, null as never);
+            if (!b || !b.analyzed) return null;
+            return {
+              tool: "content-brief",
+              block: [
+                `### موجز محتوى حقيقي لـ«${b.query}» (حُلّل ${b.analyzed} من المتصدرين الآن)`,
+                `متوسط الطول: ${b.medianWordCount} كلمة · الطول المستهدف: ${b.targetWordCount} كلمة · تغطية البيانات المنظمة: ${b.schemaCoverage}%`,
+                b.headingIdeas.length ? `عناوين فرعية متكررة: ${b.headingIdeas.slice(0, 12).join(" | ")}` : "",
+                b.commonTerms.length ? `مصطلحات لازمة: ${b.commonTerms.slice(0, 15).map((t) => t.term).join("، ")}` : "",
+                b.entityGaps.length ? `فجوات لا يغطيها المنافسون: ${b.entityGaps.slice(0, 10).join("، ")}` : "",
+                b.competitors.map((c) => `- ${c.title} (${c.words} كلمة · ${c.h2} عنوان) ${c.url}`).join("\n"),
+                "ابنِ الهيكل على هذه الأرقام الحقيقية، ثم اكتب المقال كاملاً إن طلبه المستخدم.",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              footer: "",
+            };
+          } catch {
+            return null;
+          }
+        })(),
+      );
+    }
+
+    if (wantsCompetitor) {
+      // نقارن موقع المستخدم بمنافسيه الذين ذكرهم بالاسم — لا نخلط بينهما.
+      const targets = [...new Set([...(ownHost ? [ownHost] : []), ...rivalHosts])].slice(0, 3);
+      for (const target of targets) {
+        jobs.push(
+          (async () => {
+            try {
+              const { competitorInventory, serpSearch, withBudget } = await import("./seo-research.server");
+              const inv = await withBudget(competitorInventory(target), 18_000, null as never);
+              const serp = kw ? await withBudget(serpSearch(kw), 12_000, []) : [];
+              const mine = target === ownHost;
+              return {
+                tool: `inventory:${target}`,
+                block: [
+                  `### جرد حقيقي لـ${target} ${mine ? "(موقع المستخدم)" : "(منافس)"} — من robots.txt وخرائط الموقع`,
+                  inv ? `عدد الروابط المكتشفة: ${inv.urlCount} · خرائط: ${inv.sitemaps.slice(0, 3).join("، ") || "—"}` : "لم نستطع قراءة خرائط الموقع.",
+                  inv?.topics.length ? `أبرز المحاور: ${inv.topics.slice(0, 15).join("، ")}` : "",
+                  inv?.samples.length ? inv.samples.slice(0, 10).map((s) => `- ${s.slug}`).join("\n") : "",
+                  serp.length ? `المتصدرون للاستعلام: ${serp.slice(0, 8).map((r) => `#${r.rank} ${r.url}`).join(" | ")}` : "",
+                  mine
+                    ? "استخدم هذا كخط أساس لموقع المستخدم."
+                    : "قارن هذا الجرد بجرد موقع المستخدم، واستخرج فجوات المحتوى الفعلية واقترح صفحات محددة نكسب بها.",
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+                footer: "",
+              };
+            } catch {
+              return null;
+            }
+          })(),
+        );
       }
     }
+
+    if (wantsGsc) {
+      jobs.push(
+        (async () => {
+          try {
+            const { gscSnapshotDetailed } = await import("./gsc.functions");
+            const g = await gscSnapshotDetailed(params.workspaceId, 28);
+            return {
+              tool: "gsc",
+              block: g.snapshot
+                ? [
+                    `### أداء حقيقي من Search Console (${g.snapshot.site} · ${g.snapshot.range.start} → ${g.snapshot.range.end})`,
+                    `أكثر الكلمات: ${g.snapshot.queries.slice(0, 10).map((q) => `${q.key} (${q.clicks} نقرة · ${q.impressions} ظهور · مركز ${q.position.toFixed(1)})`).join(" | ")}`,
+                    `أكثر الصفحات: ${g.snapshot.pages.slice(0, 8).map((p) => `${p.key} (${p.clicks} نقرة)`).join(" | ")}`,
+                    "ابنِ توصياتك على هذه الأرقام فقط.",
+                  ].join("\n")
+                : `Search Console: ${g.status.message} — أخبر المستخدم بصراحة، واعرض عليه ربطه الآن بضغطة من «الترتيب» أو «التقارير»، ثم أكمل الخطة بما هو متاح بدون بيانات جوجل.`,
+              footer: g.snapshot ? "التفاصيل الكاملة في «التقارير»." : "",
+            };
+          } catch (e) {
+            return { tool: "gsc", block: `تعذّر جلب بيانات Search Console: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" };
+          }
+        })(),
+      );
+
+      // فرص مخفية: حافة الصفحة الأولى، ضعف النقر، وتآكل الصفحات.
+      jobs.push(
+        (async () => {
+          try {
+            const { gscOpportunities } = await import("./gsc.functions");
+            const o = await gscOpportunities(params.workspaceId, 28);
+            if (!o.data) return null;
+            const d = o.data;
+            if (!d.strikingDistance.length && !d.lowCtr.length && !d.cannibalization.length) return null;
+            return {
+              tool: "gsc-opportunities",
+              block: [
+                `### فرص محسوبة من Search Console (${d.site})`,
+                d.strikingDistance.length
+                  ? `على حافة الصفحة الأولى (مركز 8-20 — أسرع مكسب): ${d.strikingDistance.map((r) => `${r.key} (مركز ${r.position.toFixed(1)} · ${r.impressions} ظهور)`).join(" | ")}`
+                  : "",
+                d.lowCtr.length
+                  ? `ترتيب جيد ونقر ضعيف (المشكلة في العنوان/الوصف): ${d.lowCtr.map((r) => `${r.key} (مركز ${r.position.toFixed(1)} · CTR ${(r.ctr * 100).toFixed(1)}%)`).join(" | ")}`
+                  : "",
+                d.cannibalization.length
+                  ? `تآكل داخلي — أكثر من صفحة على نفس الاستعلام: ${d.cannibalization.map((c) => `${c.key} → ${c.pages.map((p) => p.url).join(" ، ")}`).join(" | ")}`
+                  : "",
+                "حوّل كل بند إلى إجراء محدد: إعادة كتابة عنوان، تقوية صفحة، دمج صفحتين متآكلتين مع تحويل 301.",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              footer: "",
+            };
+          } catch {
+            return null;
+          }
+        })(),
+      );
+    }
+
+    // كل أدوات نور تعمل بالتوازي داخل سقف زمني واحد — لا تُلغى أداة لأن سابقتها تأخّرت.
+    const settled = await Promise.race([
+      Promise.all(jobs),
+      new Promise<(ChatToolResult | null)[]>((resolve) => setTimeout(() => resolve([]), Math.max(left(), 30_000))),
+    ]);
+    for (const r of settled) if (r) out.push(r);
   }
+
 
 
   // ---------- سِراج (سوشيال) ----------

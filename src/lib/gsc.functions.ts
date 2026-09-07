@@ -149,14 +149,14 @@ export async function gscSnapshotDetailed(
   try {
     if (!(await hasGoogleAccount(workspaceId, "search-console"))) {
       return {
-        status: { state: "not_connected", message: "Search Console غير مربوط — اربط حساب Google من صفحة التكاملات." },
+        status: { state: "not_connected", message: "Search Console غير مربوط — اربط حساب Google بضغطة من قسم «الترتيب» أو «التقارير»." },
         snapshot: null,
       };
     }
     const config = await loadConfig(workspaceId);
     if (!config.siteUrl) {
       return {
-        status: { state: "not_selected", message: "الحساب مربوط لكن لم تختر موقعاً بعد — اختر الموقع من صفحة التكاملات." },
+        status: { state: "not_selected", message: "الحساب مربوط لكن لم تختر موقعاً بعد — اختر الموقع من قسم «الترتيب»." },
         snapshot: null,
       };
     }
@@ -188,7 +188,7 @@ export async function gscSnapshotDetailed(
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
     const message = /401|403|invalid_grant|unauth/i.test(raw)
-      ? "انتهت صلاحية ربط Google — أعد ربط Search Console من صفحة التكاملات."
+      ? "انتهت صلاحية ربط Google — أعد ربط Search Console بضغطة من قسم «الترتيب»."
       : `تعذّر جلب بيانات Search Console: ${raw.slice(0, 160)}`;
     console.error("[gsc] snapshot failed", raw);
     return { status: { state: "error", message }, snapshot: null };
@@ -232,3 +232,73 @@ export const searchConsoleSnapshot = createServerFn({ method: "POST" })
     const [queries, pages] = await Promise.all([query("query"), query("page")]);
     return { site: config.siteUrl, range: { start, end }, queries, pages };
   });
+
+export type GscOpportunities = {
+  site: string;
+  range: { start: string; end: string };
+  /** استعلامات على حافة الصفحة الأولى (مركز 8-20) — أسرع مكسب ممكن. */
+  strikingDistance: { key: string; position: number; impressions: number; clicks: number }[];
+  /** ظهور عالٍ ونقر منخفض — العنوان/الوصف هو المشكلة لا الترتيب. */
+  lowCtr: { key: string; position: number; impressions: number; ctr: number }[];
+  /** أكثر من صفحة تتنافس على نفس الاستعلام (تآكل داخلي). */
+  cannibalization: { key: string; pages: { url: string; clicks: number; position: number }[] }[];
+};
+
+/** تحليل فرص حقيقي من Search Console: حافة الصفحة الأولى، ضعف النقر، وتآكل الصفحات. */
+export async function gscOpportunities(
+  workspaceId: string,
+  days = 28,
+): Promise<{ status: SourceStatus; data: GscOpportunities | null }> {
+  try {
+    if (!(await hasGoogleAccount(workspaceId, "search-console")))
+      return { status: { state: "not_connected", message: "Search Console غير مربوط — اربطه بضغطة من قسم «الترتيب» أو «التقارير»." }, data: null };
+    const config = await loadConfig(workspaceId);
+    if (!config.siteUrl)
+      return { status: { state: "not_selected", message: "الحساب مربوط لكن لم تختر موقعاً بعد — اختره من قسم «الترتيب»." }, data: null };
+
+    const { googleDataRequest } = await import("./google-data.server");
+    const end = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+    const start = new Date(Date.now() - (days + 3) * 86_400_000).toISOString().slice(0, 10);
+    const { rows = [] } = await googleDataRequest<{
+      rows?: { keys: string[]; clicks: number; impressions: number; ctr: number; position: number }[];
+    }>(
+      workspaceId,
+      "search-console",
+      `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(config.siteUrl)}/searchAnalytics/query`,
+      { method: "POST", body: { startDate: start, endDate: end, dimensions: ["query", "page"], rowLimit: 500 } },
+    );
+
+    const strikingDistance = rows
+      .filter((r) => r.position >= 8 && r.position <= 20 && r.impressions >= 10)
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 12)
+      .map((r) => ({ key: r.keys[0] ?? "", position: r.position, impressions: r.impressions, clicks: r.clicks }));
+
+    const lowCtr = rows
+      .filter((r) => r.position <= 10 && r.impressions >= 50 && r.ctr < 0.02)
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 10)
+      .map((r) => ({ key: r.keys[0] ?? "", position: r.position, impressions: r.impressions, ctr: r.ctr }));
+
+    const byQuery = new Map<string, { url: string; clicks: number; position: number }[]>();
+    for (const r of rows) {
+      const q = r.keys[0] ?? "";
+      const p = r.keys[1] ?? "";
+      if (!q || !p) continue;
+      byQuery.set(q, [...(byQuery.get(q) ?? []), { url: p, clicks: r.clicks, position: r.position }]);
+    }
+    const cannibalization = [...byQuery.entries()]
+      .filter(([, pages]) => pages.length > 1 && pages.some((p) => p.position <= 30))
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 8)
+      .map(([key, pages]) => ({ key, pages: pages.sort((a, b) => a.position - b.position).slice(0, 4) }));
+
+    return {
+      status: { state: "ok", message: `Search Console · ${config.siteUrl}` },
+      data: { site: config.siteUrl, range: { start, end }, strikingDistance, lowCtr, cannibalization },
+    };
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    return { status: { state: "error", message: `تعذّر تحليل Search Console: ${raw.slice(0, 160)}` }, data: null };
+  }
+}

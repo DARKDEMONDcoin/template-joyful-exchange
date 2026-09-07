@@ -47,6 +47,8 @@ export type DiscoveryReport = {
   actions: DiscoveryAction[];
   /** 0-100: جاهزية العلامة رقمياً (موقع + محتوى + حضور + بيانات). */
   readiness: number;
+  /** الهدف الذي صرّح به المستخدم في الحوار. */
+  goal?: string | null;
 };
 
 const SOCIAL_HOSTS: Record<string, string> = {
@@ -75,6 +77,10 @@ export const discoverBrand = createServerFn({ method: "POST" })
       .object({
         workspaceId: z.string().uuid(),
         url: z.string().trim().min(4).max(300),
+        /** هدف المستخدم من الحوار (مبيعات / زيارات / وعي / حجوزات). */
+        goal: z.string().trim().max(60).optional(),
+        /** منافسون ذكرهم المستخدم بنفسه — أدق من استنتاجهم من الموقع. */
+        competitors: z.array(z.string().trim().max(120)).max(3).optional(),
       })
       .parse(data),
   )
@@ -110,7 +116,7 @@ export const discoverBrand = createServerFn({ method: "POST" })
     /** أسماء المنافسين قد تأتي كنص لا كنطاق — نحوّلها لنطاق نظيف ونتجاهل ما لا يصلح. */
     const rivalDomains = [
       ...new Set(
-        profile.competitors
+        [...(data.competitors ?? []), ...profile.competitors]
           .map((c) => {
             const raw = c.trim().replace(/^https?:\/\//i, "").replace(/^www\./, "").split(/[\s/?#]/)[0] ?? "";
             return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(raw) ? raw.toLowerCase() : "";
@@ -282,6 +288,7 @@ export const discoverBrand = createServerFn({ method: "POST" })
     const report: DiscoveryReport = {
       url: audit?.finalUrl ?? data.url,
       generatedAt: new Date().toISOString(),
+      goal: data.goal ?? null,
       profile,
       audit,
       opportunities,
