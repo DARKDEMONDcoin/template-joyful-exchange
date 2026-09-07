@@ -174,7 +174,7 @@ function DiscoveryPage() {
           {turns.map((t, i) => (
             <div key={i} className={cn("flex gap-2.5", t.from === "me" && "flex-row-reverse")}>
               {t.from === "nour" && nour ? (
-                <Portrait member={nour} className="size-9 shrink-0 rounded-full object-cover" />
+                <Portrait memberId="nour" name={nour.name} className="size-9 shrink-0 rounded-full object-cover" />
               ) : null}
               <p
                 className={cn(
