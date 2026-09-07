@@ -126,7 +126,132 @@ export async function runChatTools(
         out.push({ tool: "rank-check", block: `تعذّر فحص الترتيب: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" });
       }
     }
+
+    // بحث كلمات مفتاحية حقيقي (اقتراحات جوجل/بينج + تقدير الطلب والصعوبة)
+    const wantsKeywords =
+      /كلمات? مفتاحية|كلمات بحث|بحث كلمات|أفكار كلمات|keyword|الناس بتدور|الناس يبحثون|استعلامات/i.test(text);
+    const seed = keywordIn(text) ?? (params.website ? hostOf(params.website) : null);
+    if (wantsKeywords && seed && left() > 10_000) {
+      try {
+        const { keywordExpansion, keywordMetrics, withBudget } = await import("./seo-research.server");
+        const [exp, metric] = await Promise.all([
+          withBudget(keywordExpansion(seed), 12_000, null as never),
+          withBudget(keywordMetrics(seed), 12_000, null as never),
+        ]);
+        const groups = exp
+          ? Object.entries(exp as unknown as Record<string, unknown>)
+              .filter(([, v]) => Array.isArray(v) && (v as unknown[]).length)
+              .slice(0, 6)
+              .map(([k, v]) => `- ${k}: ${(v as string[]).slice(0, 12).join("، ")}`)
+          : [];
+        out.push({
+          tool: "keyword-research",
+          block: [
+            `### بحث كلمات حقيقي لـ«${seed}» (اقتراحات جوجل وبينج الحيّة — نُفّذ الآن)`,
+            metric
+              ? `مؤشر الطلب: ${metric.demandScore}/100 · عمق الاقتراحات: ${metric.suggestionDepth} · الصعوبة: ${metric.difficultyScore ?? "غير متاح"} · المتصدرون: ${metric.topDomains.slice(0, 6).join("، ") || "—"}`
+              : "",
+            ...groups,
+            "رتّب الكلمات حسب نية البحث (معلوماتية/تجارية/شرائية) واقترح صفحة مستهدفة لكل مجموعة. لا تخترع أحجام بحث.",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          footer: "تابع أي كلمة أسبوعياً من قسم «الترتيب».",
+        });
+      } catch (e) {
+        out.push({ tool: "keyword-research", block: `تعذّر بحث الكلمات: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" });
+      }
+    }
+
+    // موجز محتوى مبني على المتصدرين فعلياً
+    const wantsBrief =
+      /موجز محتوى|خطة مقال|أكتب مقال|اكتب مقال|كيف أتفوق|هيكل مقال|outline|content brief|ماذا يحتوي المقال/i.test(text);
+    const briefQuery = keywordIn(text) ?? seed;
+    if (wantsBrief && briefQuery && left() > 12_000) {
+      try {
+        const { contentBrief, withBudget } = await import("./seo-research.server");
+        const b = await withBudget(contentBrief(briefQuery, params.website ?? undefined), 18_000, null as never);
+        if (b && b.analyzed) {
+          out.push({
+            tool: "content-brief",
+            block: [
+              `### موجز محتوى حقيقي لـ«${b.query}» (حُلّل ${b.analyzed} من المتصدرين الآن)`,
+              `متوسط الطول: ${b.medianWordCount} كلمة · الطول المستهدف: ${b.targetWordCount} كلمة · تغطية البيانات المنظمة: ${b.schemaCoverage}%`,
+              b.headingIdeas.length ? `عناوين فرعية متكررة: ${b.headingIdeas.slice(0, 12).join(" | ")}` : "",
+              b.commonTerms.length ? `مصطلحات لازمة: ${b.commonTerms.slice(0, 15).map((t) => t.term).join("، ")}` : "",
+              b.entityGaps.length ? `فجوات لا يغطيها المنافسون: ${b.entityGaps.slice(0, 10).join("، ")}` : "",
+              b.competitors.map((c) => `- ${c.title} (${c.words} كلمة · ${c.h2} عنوان) ${c.url}`).join("\n"),
+              "ابنِ الهيكل على هذه الأرقام الحقيقية، ثم اكتب المقال كاملاً إن طلبه المستخدم.",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            footer: "",
+          });
+        }
+      } catch {
+        /* لا شيء */
+      }
+    }
+
+    // جرد منافس حقيقي من خرائط موقعه
+    const wantsCompetitor = /منافس|المنافسين|competitor|من يتفوق علي|قارن موقعي/i.test(text);
+    const rival = hostOf(urlIn(text, null)) ?? null;
+    if (wantsCompetitor && left() > 10_000) {
+      try {
+        const { competitorInventory, serpSearch, withBudget } = await import("./seo-research.server");
+        const target = rival ?? hostOf(params.website ?? null);
+        if (target) {
+          const inv = await withBudget(competitorInventory(target), 14_000, null as never);
+          const serp = keywordIn(text)
+            ? await withBudget(serpSearch(keywordIn(text)!), 10_000, [])
+            : [];
+          out.push({
+            tool: "competitors",
+            block: [
+              `### جرد حقيقي للنطاق ${target} (من robots.txt وخرائط الموقع)`,
+              inv ? `عدد الروابط المكتشفة: ${inv.urlCount} · خرائط: ${inv.sitemaps.slice(0, 3).join("، ") || "—"}` : "",
+              inv?.topics.length ? `أبرز المحاور: ${inv.topics.slice(0, 15).join("، ")}` : "",
+              inv?.samples.length ? inv.samples.slice(0, 10).map((s) => `- ${s.slug}`).join("\n") : "",
+              serp.length ? `المتصدرون للاستعلام: ${serp.slice(0, 8).map((r) => `#${r.rank} ${r.url}`).join(" | ")}` : "",
+              "استخرج فجوات المحتوى مقارنةً بموقع المستخدم، واقترح صفحات جديدة محددة.",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            footer: "",
+          });
+        }
+      } catch {
+        /* لا شيء */
+      }
+    }
+
+    // أداء الموقع الفعلي من Search Console
+    const wantsGsc =
+      /سيرش كونسول|search console|أداء (الموقع|السيو|الصفحات)|نقرات|ظهور|impressions|أكثر (الكلمات|الصفحات)|بياناتي في جوجل/i.test(
+        text,
+      );
+    if (wantsGsc && left() > 8000) {
+      try {
+        const { gscSnapshotDetailed } = await import("./gsc.functions");
+        const g = await gscSnapshotDetailed(params.workspaceId, 28);
+        out.push({
+          tool: "gsc",
+          block: g.snapshot
+            ? [
+                `### أداء حقيقي من Search Console (${g.snapshot.site} · ${g.snapshot.range.start} → ${g.snapshot.range.end})`,
+                `أكثر الكلمات: ${g.snapshot.queries.slice(0, 10).map((q) => `${q.key} (${q.clicks} نقرة · ${q.impressions} ظهور · مركز ${q.position.toFixed(1)})`).join(" | ")}`,
+                `أكثر الصفحات: ${g.snapshot.pages.slice(0, 8).map((p) => `${p.key} (${p.clicks} نقرة)`).join(" | ")}`,
+                "ابنِ توصياتك على هذه الأرقام فقط: صفحات قريبة من الصفحة الأولى، كلمات ظهور عالٍ بنقرات منخفضة (عناوين تحتاج تحسيناً).",
+              ].join("\n")
+            : `Search Console: ${g.status.message} — أخبر المستخدم بصراحة واعرض ربطه الآن من قسم «الترتيب» أو «التقارير».`,
+          footer: g.snapshot ? "التفاصيل الكاملة في «التقارير»." : "",
+        });
+      } catch (e) {
+        out.push({ tool: "gsc", block: `تعذّر جلب بيانات Search Console: ${e instanceof Error ? e.message : "خطأ"}.`, footer: "" });
+      }
+    }
   }
+
 
   // ---------- سِراج (سوشيال) ----------
   if (params.employeeId === "sonny") {
