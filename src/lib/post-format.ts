@@ -11,6 +11,11 @@ const CUT_FROM = [
   /^\s*#{0,6}\s*(?:📸|📷)?\s*صور\s+من\s+موقعك/u,
   /^\s*#{0,6}\s*\**\s*افتراضات\s*[:：]?/u,
   /^\s*#{0,6}\s*\**\s*(?:ملاحظة للمستخدم|تعليمات)\s*[:：]/u,
+  // أقسام حوار الشات — لا تُنشر أبداً داخل المنشور.
+  /^\s*#{0,6}\s*\**\s*الخطوة\s+التالية\s*\**\s*[:：]?\s*$/u,
+  /^\s*#{0,6}\s*\**\s*الخطوات\s+التالية\s*\**\s*[:：]?\s*$/u,
+  /^\s*#{0,6}\s*\**\s*المطلوب\s*(?:منك)?\s*\**\s*[:：]?\s*$/u,
+  /^\s*#{0,6}\s*\**\s*(?:ما\s+أحتاجه|أحتاج\s+منك)\s*\**\s*[:：]?\s*$/u,
 ];
 
 const DROP_LINE = [
@@ -23,7 +28,10 @@ const DROP_LINE = [
   /الصورة\s+المولّدة/u,
   /المنشور\s+جاهز/u,
   /راقب\s+الوصول/u,
+  /^\s*جاهز\s+أكتب/u,
+  /أرسل\s+.*(?:لأجهّزه|لأجهزه|في\s+رسالة\s+واحدة)/u,
 ];
+
 
 /**
  * ينظّف نص المنشور: يزيل صيغ الماركداون وكل ما هو موجَّه للمستخدم داخل الشات،
@@ -34,9 +42,16 @@ export function sanitizePostBody(input: string | null | undefined): string {
   let text = input
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
+    .replace(/!\[([^\]]*)\]/g, "$1")
+
+    // روابط الوسائط المؤقتة (تخزين سوبابيز/صور موقّعة) لا مكان لها داخل نص المنشور.
+    .replace(/\(?https?:\/\/\S*(?:\/storage\/v1\/|\.(?:jpe?g|png|webp|gif|mp4)(?:\?\S*)?)\)?/gi, "")
     .replace(/^\s*(?:---|\*\*\*|___)\s*$/gm, "")
     .replace(/^#{1,6}\s*/gm, "")
-    .replace(/\*\*/g, "");
+    .replace(/\*\*/g, "")
+    // بقايا أقواس فارغة بعد إزالة الروابط.
+    .replace(/\[\s*\]|\(\s*\)/g, "");
+
 
   const lines = text.split("\n");
   const kept: string[] = [];
@@ -66,14 +81,20 @@ const REFUSAL = [
   /هل\s+تريد(?:ني)?\s+أن/u,
   /وضّح\s+لي/u,
   /أحتاج\s+منك/u,
+  /^\s*جاهز\s+(?:أكتب|أجهّز|أجهز)/u,
+  /أرسل\s+.*(?:لأجهّزه|لأجهزه)/u,
+  /ما\s+تخصص/u,
 ];
 
 export function isNonPostReply(input: string | null | undefined): boolean {
   const text = sanitizePostBody(input);
   if (!text) return true;
   const head = text.split("\n").slice(0, 6).join("\n");
-  return REFUSAL.some((re) => re.test(head));
+  if (REFUSAL.some((re) => re.test(head))) return true;
+  // نص قصير جداً بعد التنظيف = بقايا حوار لا منشور.
+  return text.replace(/\s+/g, " ").trim().length < 40;
 }
+
 
 
 

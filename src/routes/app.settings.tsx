@@ -2,9 +2,12 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Building2, Bell, User, KeyRound } from "lucide-react";
+import { CreditCard, Building2, Bell, User, KeyRound, LogOut } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
+import { COUNTRIES } from "@/data/team-portraits";
+import { useRegion } from "@/hooks/use-region";
+import { supabase } from "@/integrations/supabase/client";
 import {
   useProfile,
   useTasks,
@@ -14,6 +17,7 @@ import {
 } from "@/lib/data";
 import { listSecrets, upsertSecrets, deleteSecret, testAiProviders } from "@/lib/secrets.functions";
 import { cn } from "@/lib/utils";
+
 
 export const Route = createFileRoute("/app/settings")({
   head: () => ({
@@ -39,6 +43,8 @@ const field =
 
 function SettingsPage() {
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("workspace");
+  const { country, setCountry } = useRegion();
+
   const { data: workspace } = useWorkspace();
   const { data: profile } = useProfile();
   const { data: tasks } = useTasks(workspace?.id);
@@ -51,22 +57,24 @@ function SettingsPage() {
   return (
     <AppShell title="الإعدادات" lead="كل ما يخص مساحة عملك وحسابك.">
       <div className="grid gap-6 lg:grid-cols-[14rem_1fr]">
-        <nav className="flex gap-2 overflow-x-auto lg:flex-col">
+        <nav className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-col">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={cn(
-                "inline-flex shrink-0 items-center gap-2.5 rounded-2xl px-4 py-2.5 text-sm font-bold transition-colors",
-                tab === t.id ? "bg-foreground text-background" : "hover:bg-secondary",
+                "inline-flex min-w-0 items-center gap-2 rounded-2xl px-3.5 py-2.5 text-sm font-bold transition-colors",
+                tab === t.id ? "bg-foreground text-background" : "border border-border hover:bg-secondary",
               )}
             >
-              <t.icon className="size-4" /> {t.label}
+              <t.icon className="size-4 shrink-0" />
+              <span className="truncate">{t.label}</span>
             </button>
           ))}
         </nav>
 
-        <div className="rounded-3xl border border-border bg-card p-6 md:p-8">
+        <div className="min-w-0 rounded-3xl border border-border bg-card p-5 sm:p-6 md:p-8">
+
           {saved ? (
             <p className="mb-5 rounded-2xl bg-jade/12 px-4 py-3 text-sm font-semibold text-jade-deep">
               {saved}
@@ -162,15 +170,47 @@ function SettingsPage() {
                   <option>فصحى معاصرة</option>
                 </select>
               </label>
-              <button
-                type="submit"
-                disabled={updateProfile.isPending}
-                className="rounded-full bg-foreground px-6 py-2.5 text-sm font-bold text-background disabled:opacity-60"
-              >
-                {updateProfile.isPending ? "جارٍ الحفظ…" : "حفظ"}
-              </button>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold">زيّ الفريق في الصور (اختياري)</span>
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  className={field}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1.5 block text-xs text-muted-foreground">
+                  يظهر الموظفون بالأسماء نفسها وبلبس الدولة التي تختارها — والاختيار التلقائي حسب بلدك.
+                </span>
+              </label>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={updateProfile.isPending}
+                  className="rounded-full bg-foreground px-6 py-2.5 text-sm font-bold text-background disabled:opacity-60"
+                >
+                  {updateProfile.isPending ? "جارٍ الحفظ…" : "حفظ"}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    window.location.href = "/";
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-bold text-coral transition-colors hover:bg-coral/10"
+                >
+                  <LogOut className="size-4" /> تسجيل الخروج
+                </button>
+              </div>
             </form>
           ) : null}
+
 
           {tab === "ai" ? <SecretsPanel /> : null}
 
