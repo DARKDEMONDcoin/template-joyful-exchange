@@ -70,7 +70,7 @@ export function MorningBriefingCard({ workspaceId, className }: { workspaceId: s
         </p>
       ) : data ? (
         <>
-          <div className="mt-5 grid gap-2 sm:grid-cols-3">
+          <div className="mt-5 grid gap-2 sm:grid-cols-3 [&>*]:min-w-0">
             {[
               { k: "أُنجز هذا الأسبوع", v: data.stats.done7d },
               { k: "نُشر هذا الأسبوع", v: data.stats.published7d },
@@ -93,7 +93,7 @@ export function MorningBriefingCard({ workspaceId, className }: { workspaceId: s
             </ul>
           ) : null}
 
-          <div className="mt-5 grid gap-5 lg:grid-cols-3">
+          <div className="mt-5 grid gap-5 lg:grid-cols-3 [&>*]:min-w-0">
             <div>
               <h3 className="flex items-center gap-1.5 text-sm font-black">
                 <CheckCheck className="size-4 text-jade" /> بانتظار موافقتك

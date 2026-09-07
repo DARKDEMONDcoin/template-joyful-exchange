@@ -667,6 +667,50 @@ export type Database = {
           },
         ]
       }
+      site_visits: {
+        Row: {
+          country: string | null
+          created_at: string
+          host: string | null
+          id: string
+          path: string
+          referrer: string | null
+          source: string | null
+          visitor_hash: string | null
+          workspace_id: string
+        }
+        Insert: {
+          country?: string | null
+          created_at?: string
+          host?: string | null
+          id?: string
+          path?: string
+          referrer?: string | null
+          source?: string | null
+          visitor_hash?: string | null
+          workspace_id: string
+        }
+        Update: {
+          country?: string | null
+          created_at?: string
+          host?: string | null
+          id?: string
+          path?: string
+          referrer?: string | null
+          source?: string | null
+          visitor_hash?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "site_visits_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       social_autopilot: {
         Row: {
           active: boolean

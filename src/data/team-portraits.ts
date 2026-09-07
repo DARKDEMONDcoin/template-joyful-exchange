@@ -113,11 +113,18 @@ const portraits: Record<Region, Record<string, string>> = {
   yemen: { sonny: sonnyYemen, eva: evaYemen, sam: samYemen, nour: nourYemen, dana: danaYemen, adam: adamYemen },
 };
 
-export function portraitOf(memberId: string, region: Region): string {
-  return portraits[region]?.[memberId] ?? portraits.eg[memberId] ?? sonnyEg;
+/**
+ * صورة الموظف — موحّدة في كل مكان بالموقع لكل المستخدمين.
+ * نستخدم طقماً واحداً ثابتاً حتى لا تختلف الصورة بين الصفحات أو الزوار.
+ */
+const CANONICAL: Region = "gulf";
+
+export function portraitOf(memberId: string, _region?: Region): string {
+  return portraits[CANONICAL][memberId] ?? portraits.eg[memberId] ?? sonnyEg;
 }
 
-/** صورة الموظف حسب بلد الزائر. */
-export function portraitForCountry(memberId: string, countryCode: string): string {
-  return portraitOf(memberId, countryOf(countryCode).attire);
+/** نفس الصورة الموحّدة مهما كان بلد الزائر. */
+export function portraitForCountry(memberId: string, _countryCode?: string): string {
+  return portraitOf(memberId);
 }
+

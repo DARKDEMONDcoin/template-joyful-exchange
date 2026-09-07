@@ -73,32 +73,59 @@ function AppHome() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {kpis.map((k) => (
-          <div key={k.k} className="rounded-3xl border border-border bg-card p-6">
-            <p className="text-sm font-semibold text-muted-foreground">{k.k}</p>
-            <p className="mt-2 font-display text-3xl font-black">{k.v}</p>
-            <p className="mt-1 text-xs text-jade-deep">{k.d}</p>
+          <div key={k.k} className="rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <p className="truncate text-xs font-semibold text-muted-foreground sm:text-sm">{k.k}</p>
+            <p className="mt-1.5 font-display text-2xl font-black tabular-nums sm:text-3xl">{k.v}</p>
+            <p className="mt-1 truncate text-[0.7rem] text-jade-deep">{k.d}</p>
           </div>
         ))}
       </div>
 
-      <ActivationMap className="mt-6" />
+      {workspace ? <MorningBriefingCard className="mt-5" workspaceId={workspace.id} /> : null}
 
-      {workspace ? <MorningBriefingCard className="mt-6" workspaceId={workspace.id} /> : null}
+      <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        <details className="group rounded-2xl border border-border bg-card">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
+            <span className="min-w-0 truncate font-display text-sm font-black">خطوات تشغيل فريقك</span>
+            <span className="shrink-0 text-xs font-bold text-muted-foreground group-open:hidden">
+              عرض
+            </span>
+            <span className="hidden shrink-0 text-xs font-bold text-muted-foreground group-open:inline">
+              إخفاء
+            </span>
+          </summary>
+          <div className="px-4 pb-4">
+            <ActivationMap />
+          </div>
+        </details>
+
+        {workspace ? (
+          <details className="group rounded-2xl border border-border bg-card">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
+              <span className="min-w-0 truncate font-display text-sm font-black">ملف نشاطك التجاري</span>
+              <span className="shrink-0 text-xs font-bold text-muted-foreground group-open:hidden">
+                عرض
+              </span>
+              <span className="hidden shrink-0 text-xs font-bold text-muted-foreground group-open:inline">
+                إخفاء
+              </span>
+            </summary>
+            <div className="px-4 pb-4">
+              <BusinessProfileCard
+                workspaceId={workspace.id}
+                website={(workspace as { website?: string | null }).website}
+                profile={(workspace as { profile?: Record<string, unknown> }).profile as never}
+              />
+            </div>
+          </details>
+        ) : null}
+      </div>
 
 
-      {workspace ? (
-        <BusinessProfileCard
-          className="mt-6"
-          workspaceId={workspace.id}
-          website={(workspace as { website?: string | null }).website}
-          profile={(workspace as { profile?: Record<string, unknown> }).profile as never}
-        />
-      ) : null}
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1.6fr_1fr]">
-        <section className="rounded-3xl border border-border bg-card p-6">
+      <div className="mt-5 grid gap-4 lg:grid-cols-[1.6fr_1fr] [&>*]:min-w-0">
+        <section className="rounded-2xl border border-border bg-card p-5 sm:p-6">
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg font-black">آخر ما أنجزه فريقك</h2>
             <Link to="/app/tasks" className="text-sm font-bold text-primary">
@@ -151,9 +178,9 @@ function AppHome() {
                         {timeAgo(t.created_at)}
                       </span>
                     </div>
-                    <p className="mt-2.5 font-bold">{t.title}</p>
+                    <p className="mt-2.5 break-words font-bold">{t.title}</p>
                     {t.detail ? (
-                      <p className="mt-1 text-sm leading-relaxed text-ink-soft">{t.detail}</p>
+                      <p className="mt-1 line-clamp-2 break-words text-sm leading-relaxed text-ink-soft">{t.detail}</p>
                     ) : null}
                   </li>
                 );
@@ -163,7 +190,7 @@ function AppHome() {
         </section>
 
         <div className="space-y-6">
-          <section className="rounded-3xl border border-border bg-card p-6">
+          <section className="rounded-2xl border border-border bg-card p-5 sm:p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-lg font-black">بانتظار موافقتك</h2>
               <span className="rounded-full bg-coral/15 px-2.5 py-0.5 text-xs font-black text-coral">
@@ -189,7 +216,7 @@ function AppHome() {
             </Link>
           </section>
 
-          <section className="rounded-3xl border border-border bg-card p-6">
+          <section className="rounded-2xl border border-border bg-card p-5 sm:p-6">
             <h2 className="font-display text-lg font-black">مهام جارية</h2>
             <ul className="mt-4 space-y-3">
               {running.slice(0, 4).map((t) => (

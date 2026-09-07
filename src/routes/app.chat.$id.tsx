@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Send, PanelRight, Loader2, Check, Copy, Share2, RefreshCw, Download, PenLine, Plus, Trash2, ChevronDown, History, X, ArrowUpLeft, Fingerprint } from "lucide-react";
+import { Send, Loader2, Check, Copy, Share2, RefreshCw, Download, PenLine, Plus, Trash2, ChevronDown, History, X, ArrowUpLeft, Fingerprint } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppIcon, appLabel } from "@/components/site/AppIcon";
@@ -505,30 +505,20 @@ function ChatPage() {
         <button
           type="button"
           onClick={() => {
-            setShowSettings(true);
             setInfoOpen(false);
+            setShowSettings((v) => !v);
           }}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2.5 text-sm font-bold transition-colors",
-            showSettings && !infoOpen ? "bg-foreground text-background" : "hover:bg-secondary",
+            showSettings ? "bg-foreground text-background" : "hover:bg-secondary",
           )}
-          aria-label="المحادثات السابقة"
-          title="المحادثات السابقة"
+          aria-label="المحادثات"
+          title="المحادثات"
         >
           <History className="size-4.5" />
           <span className="hidden sm:inline">المحادثات</span>
         </button>
-        <button
-          onClick={() => setShowSettings((v) => !v)}
-          className={cn(
-            "grid size-10 place-items-center rounded-xl border border-border transition-colors",
-            showSettings ? "bg-foreground text-background" : "hover:bg-secondary",
-          )}
-          aria-label="اللوحة الجانبية"
-          title="اللوحة الجانبية"
-        >
-          <PanelRight className="size-4.5" />
-        </button>
+
         </>
       }
 
