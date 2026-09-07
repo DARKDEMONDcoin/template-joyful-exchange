@@ -2,9 +2,12 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Building2, Bell, User, KeyRound } from "lucide-react";
+import { CreditCard, Building2, Bell, User, KeyRound, LogOut } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
+import { COUNTRIES } from "@/data/team-portraits";
+import { useRegion } from "@/hooks/use-region";
+import { supabase } from "@/integrations/supabase/client";
 import {
   useProfile,
   useTasks,
@@ -14,6 +17,7 @@ import {
 } from "@/lib/data";
 import { listSecrets, upsertSecrets, deleteSecret, testAiProviders } from "@/lib/secrets.functions";
 import { cn } from "@/lib/utils";
+
 
 export const Route = createFileRoute("/app/settings")({
   head: () => ({
