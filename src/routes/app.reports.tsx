@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, Loader2, PlugZap, Printer } from "lucide-r
 import { AppShell } from "@/components/app/AppShell";
 import { SeoAuditCard } from "@/components/app/SeoAuditCard";
 import { GoogleConnectButton } from "@/components/app/GoogleConnect";
+import { VisitorsPanel } from "@/components/app/VisitorsPanel";
 import { useWorkspace } from "@/lib/data";
 import { buildReport } from "@/lib/reports.functions";
 
@@ -249,6 +250,10 @@ function ReportsPage() {
           </section>
         </article>
       ) : null}
+
+      <div className="mt-6">
+        <VisitorsPanel workspaceId={workspace?.id} />
+      </div>
     </AppShell>
   );
 }
