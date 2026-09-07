@@ -717,7 +717,7 @@ export const askEmployee = createServerFn({ method: "POST" })
       if (pool.length) {
         const { rankAssets } = await import("./brand-assets.server");
         const query = `${data.message}\n${deliverables.map((d) => `${d.title ?? ""} ${d.body ?? ""}`).join("\n")}`;
-        siteSuggestions = rankAssets(query, pool, 3).map((a) => ({
+        siteSuggestions = rankAssets(query, pool, 12).map((a) => ({
           url: a.url,
           alt: a.alt,
           pageUrl: a.pageUrl,
