@@ -114,17 +114,18 @@ const portraits: Record<Region, Record<string, string>> = {
 };
 
 /**
- * صورة الموظف — موحّدة في كل مكان بالموقع لكل المستخدمين.
- * نستخدم طقماً واحداً ثابتاً حتى لا تختلف الصورة بين الصفحات أو الزوار.
+ * صورة الموظف حسب طقم بلد المستخدم — ونفس الصورة في كل صفحات الموقع،
+ * لأن كل المكوّنات تقرأ نفس المصدر (طقم البلد الحالي من useRegion).
  */
-const CANONICAL: Region = "gulf";
+export const DEFAULT_REGION: Region = "eg";
 
-export function portraitOf(memberId: string, _region?: Region): string {
-  return portraits[CANONICAL][memberId] ?? portraits.eg[memberId] ?? sonnyEg;
+export function portraitOf(memberId: string, region?: Region): string {
+  const set = portraits[region ?? DEFAULT_REGION] ?? portraits[DEFAULT_REGION];
+  return set[memberId] ?? portraits[DEFAULT_REGION][memberId] ?? sonnyEg;
 }
 
-/** نفس الصورة الموحّدة مهما كان بلد الزائر. */
-export function portraitForCountry(memberId: string, _countryCode?: string): string {
-  return portraitOf(memberId);
+/** صورة الموظف حسب رمز الدولة. */
+export function portraitForCountry(memberId: string, countryCode?: string): string {
+  return portraitOf(memberId, countryCode ? countryOf(countryCode).attire : undefined);
 }
 

@@ -12,12 +12,13 @@ type PortraitProps = {
   eager?: boolean;
 };
 
-/** صورة الموظف — نفسها في كل مكان بالموقع. */
+/** صورة الموظف — بزيّ بلد المستخدم، ونفسها في كل مكان بالموقع. */
 export function Portrait({ memberId, name, className, eager }: PortraitProps) {
+  const { region } = useRegion();
   return (
     <img
-      key={memberId}
-      src={portraitOf(memberId)}
+      key={`${memberId}-${region}`}
+      src={portraitOf(memberId, region)}
       alt={`${name} — موظف رقمي في سهل`}
       width={768}
       height={768}

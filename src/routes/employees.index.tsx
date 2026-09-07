@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { PageShell, PageHero, CtaBand } from "@/components/site/PageShell";
 import { AppRow } from "@/components/site/AppIcon";
-import { Portrait } from "@/components/site/Portrait";
+import { Portrait, RegionPicker } from "@/components/site/Portrait";
 import { Reveal } from "@/components/Reveal";
 import { team } from "@/data/team";
 
@@ -38,6 +38,13 @@ function EmployeesPage() {
       />
 
       <section className="mx-auto max-w-6xl px-5 py-14">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm font-semibold text-muted-foreground">
+            يظهر فريقك بزيّ بلدك — غيّر البلد وقتما تشاء:
+          </p>
+          <RegionPicker />
+        </div>
+
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           {team.map((m, i) => (
             <Reveal key={m.id} delay={i * 70}>
