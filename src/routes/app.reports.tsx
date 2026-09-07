@@ -1,15 +1,14 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, PlugZap, Printer } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
 import { SeoAuditCard } from "@/components/app/SeoAuditCard";
-import { SearchConsoleSites } from "@/components/app/SearchConsoleSites";
+import { GoogleConnectButton } from "@/components/app/GoogleConnect";
 import { useWorkspace } from "@/lib/data";
 import { buildReport } from "@/lib/reports.functions";
-import { startSearchConsoleOAuth } from "@/lib/gsc.functions";
+
 
 export const Route = createFileRoute("/app/reports")({
   head: () => ({
@@ -69,13 +68,13 @@ function Table({
 function SourceCard({
   label,
   status,
-  onConnect,
-  connecting,
+  workspaceId,
+  kind,
 }: {
   label: string;
   status: { state: "ok" | "not_connected" | "not_selected" | "error"; message: string };
-  onConnect?: () => void;
-  connecting?: boolean;
+  workspaceId: string | undefined;
+  kind: "search-console" | "analytics";
 }) {
   const ok = status.state === "ok";
   const tone =
@@ -92,55 +91,27 @@ function SourceCard({
         <p className="text-sm font-black">{label}</p>
         <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{status.message}</p>
         {!ok ? (
-          onConnect ? (
-            <button
-              type="button"
-              onClick={onConnect}
-              disabled={connecting}
-              className="mt-2 inline-flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-xs font-bold text-background disabled:opacity-60"
-            >
-              {connecting ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {status.state === "error" ? "أعد الربط" : status.state === "not_selected" ? "اختر الموقع/الخاصية" : "اربط الآن"}
-            </button>
-          ) : (
-            <Link
-              to="/app/integrations"
-              className="mt-2 inline-flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-xs font-bold text-background"
-            >
-              {status.state === "error" ? "أعد الربط" : status.state === "not_selected" ? "اختر الموقع/الخاصية" : "اربط الآن"}
-            </Link>
-          )
+          <span className="mt-2 inline-flex">
+            <GoogleConnectButton
+              workspaceId={workspaceId}
+              kind={kind}
+              size="sm"
+              needsPick={status.state === "not_selected"}
+              {...(status.state === "error" ? { label: "أعد الربط" } : {})}
+            />
+          </span>
         ) : null}
       </div>
     </div>
   );
 }
 
+
 function ReportsPage() {
   const { data: workspace } = useWorkspace();
   const build = useServerFn(buildReport);
-  const startGsc = useServerFn(startSearchConsoleOAuth);
-  const [connecting, setConnecting] = useState(false);
-  const [sitesOpen, setSitesOpen] = useState(false);
-  const [connectError, setConnectError] = useState<string | null>(null);
 
-  const connectSearchConsole = async (state: string) => {
-    if (!workspace) return;
-    setConnectError(null);
-    if (state === "not_selected") {
-      setSitesOpen(true);
-      return;
-    }
-    setConnecting(true);
-    try {
-      const res = await startGsc({ data: { workspaceId: workspace.id } });
-      window.open(res.url, "_blank", "noopener,noreferrer");
-    } catch (e) {
-      setConnectError(e instanceof Error ? e.message : "تعذّر بدء ربط Search Console.");
-    } finally {
-      setConnecting(false);
-    }
-  };
+
 
 
   const { data, isLoading, error } = useQuery({
@@ -190,8 +161,9 @@ function ReportsPage() {
           </header>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2 print:hidden">
-            <SourceCard label="Google Search Console" status={data.sources.search} />
-            <SourceCard label="Google Analytics 4" status={data.sources.analytics} />
+            <SourceCard label="Google Search Console" status={data.sources.search} workspaceId={workspace?.id} kind="search-console" />
+            <SourceCard label="Google Analytics 4" status={data.sources.analytics} workspaceId={workspace?.id} kind="analytics" />
+
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

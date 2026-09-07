@@ -1,10 +1,11 @@
 import { Fragment, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Link2, Loader2, Plus, RefreshCw, ShieldCheck, Swords, Trash2, TrendingDown, TrendingUp } from "lucide-react";
+import { Loader2, Plus, RefreshCw, ShieldCheck, Swords, Trash2, TrendingDown, TrendingUp } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
+import { GoogleConnectButton } from "@/components/app/GoogleConnect";
 import { useWorkspace } from "@/lib/data";
 import {
   addTrackedKeyword,
@@ -12,6 +13,7 @@ import {
   refreshRankings,
   removeTrackedKeyword,
 } from "@/lib/rank-tracker.functions";
+
 
 export const Route = createFileRoute("/app/rankings")({
   head: () => ({
@@ -174,12 +176,8 @@ function RankingsPage() {
             <b>للأرقام الرسمية من جوجل:</b> اربط Google Search Console مرة واحدة — سنعرض متوسط ترتيبك الفعلي والنقرات
             والظهور لكل كلمة بدل الاعتماد على قراءة صفحة النتائج.
           </p>
-          <Link
-            to="/app/integrations"
-            className="inline-flex items-center gap-1.5 rounded-xl bg-foreground px-3.5 py-2 text-xs font-bold text-background"
-          >
-            <Link2 className="size-3.5" /> اربط Search Console
-          </Link>
+          <GoogleConnectButton workspaceId={workspace?.id} kind="search-console" size="sm" />
+
         </div>
       ) : null}
 

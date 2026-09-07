@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Send, PanelRight, Loader2, Check, Copy, Sparkles, ArrowUpLeft, Link2, Fingerprint, Share2, RefreshCw, Download, PenLine, Plus, Trash2, ChevronDown } from "lucide-react";
+import { Send, PanelRight, Loader2, Check, Copy, Share2, RefreshCw, Download, PenLine, Plus, Trash2, ChevronDown, History, X, ArrowUpLeft, Fingerprint } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppIcon, appLabel } from "@/components/site/AppIcon";
@@ -375,6 +375,16 @@ function ChatPage() {
   }, [workspace, conversations, createConversation]);
 
   const [showSettings, setShowSettings] = useState(false);
+  /** تلميح صوت العلامة اختياري تماماً — يُخفى نهائياً بضغطة واحدة. */
+  const [voiceHintHidden, setVoiceHintHidden] = useState(true);
+  useEffect(() => {
+    setVoiceHintHidden(localStorage.getItem("sahl:voice-hint-hidden") === "1");
+  }, []);
+  const dismissVoiceHint = () => {
+    localStorage.setItem("sahl:voice-hint-hidden", "1");
+    setVoiceHintHidden(true);
+  };
+
   const [infoOpen, setInfoOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -493,18 +503,35 @@ function ChatPage() {
           {createConversation.isPending ? <Loader2 className="size-4.5 animate-spin" /> : <Plus className="size-4.5" />}
         </button>
         <button
+          type="button"
+          onClick={() => {
+            setShowSettings(true);
+            setInfoOpen(false);
+          }}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2.5 text-sm font-bold transition-colors",
+            showSettings && !infoOpen ? "bg-foreground text-background" : "hover:bg-secondary",
+          )}
+          aria-label="المحادثات السابقة"
+          title="المحادثات السابقة"
+        >
+          <History className="size-4.5" />
+          <span className="hidden sm:inline">المحادثات</span>
+        </button>
+        <button
           onClick={() => setShowSettings((v) => !v)}
           className={cn(
             "grid size-10 place-items-center rounded-xl border border-border transition-colors",
             showSettings ? "bg-foreground text-background" : "hover:bg-secondary",
           )}
-          aria-label="المحادثات وتفاصيل الموظف"
-          title="المحادثات وتفاصيل الموظف"
+          aria-label="اللوحة الجانبية"
+          title="اللوحة الجانبية"
         >
           <PanelRight className="size-4.5" />
         </button>
         </>
       }
+
     >
       <div className={cn("grid", showSettings && "lg:grid-cols-[minmax(0,1fr)_20rem]")}>
         <div className="relative flex min-h-[calc(100dvh-5.3rem)] min-w-0 flex-col">
@@ -513,11 +540,8 @@ function ChatPage() {
             className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(60%_100%_at_50%_0%,color-mix(in_oklab,var(--primary)_9%,transparent),transparent)]"
           />
           <div className="relative mx-auto w-full max-w-3xl flex-1 space-y-4 px-5 py-6">
-            {brainItems && !hasVoiceGuide && ["sonny", "nour", "eva", "dana"].includes(id) ? (
-              <Link
-                to="/app/brain"
-                className="group flex items-center gap-3 rounded-2xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-sm transition-colors hover:bg-primary/10"
-              >
+            {brainItems && !hasVoiceGuide && !voiceHintHidden && ["sonny", "nour", "eva", "dana"].includes(id) ? (
+              <div className="group flex items-center gap-3 rounded-2xl border border-dashed border-border bg-secondary/40 px-4 py-3 text-sm">
                 <span
                   className="grid size-9 shrink-0 place-items-center rounded-xl text-primary-foreground"
                   style={{ backgroundImage: "var(--gradient-aurora)" }}
@@ -525,14 +549,31 @@ function ChatPage() {
                   <Fingerprint className="size-4" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-bold">خلّي {member.name} يكتب بصوت علامتك بالضبط</span>
+                  <span className="block font-bold">
+                    اختياري: خلّي {member.name} يكتب بصوت علامتك
+                  </span>
                   <span className="block text-xs text-muted-foreground">
-                    الصق رابط موقعك مرة واحدة — نستخرج اللهجة والنبرة والمفردات ويلتزم بها الفريق كله. مجانًا.
+                    يعمل بكفاءة كاملة بدونها — وإن أردت دقة أعلى الصق رابط موقعك مرة واحدة في عقل العلامة.
                   </span>
                 </span>
-                <ArrowUpLeft className="size-4 shrink-0 text-primary transition-transform group-hover:-translate-y-0.5 group-hover:-translate-x-0.5" />
-              </Link>
+                <Link
+                  to="/app/brain"
+                  className="hidden shrink-0 items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-bold transition-colors hover:bg-secondary sm:inline-flex"
+                >
+                  فعّلها <ArrowUpLeft className="size-3.5 text-primary" />
+                </Link>
+                <button
+                  type="button"
+                  aria-label="إخفاء"
+                  title="إخفاء"
+                  onClick={dismissVoiceHint}
+                  className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
             ) : null}
+
             {(messages ?? []).length === 0 && !pending ? (
               <div className="animate-pop-in rounded-3xl border border-border bg-card p-8 text-center shadow-card">
                 <span className="relative mx-auto block size-20 rounded-3xl">
