@@ -43,7 +43,9 @@ async function runReport(
 }
 
 /** يختار خاصية GA4 تلقائياً حين تكون واحدة فقط، ويحفظها للمرات القادمة. */
-async function autoSelectProperty(workspaceId: string): Promise<string | undefined> {
+async function autoSelectProperty(
+  workspaceId: string,
+): Promise<{ propertyId?: string; empty: boolean }> {
   try {
     const { googleDataRequest } = await import("./google-data.server");
     const parsed = await googleDataRequest<{
@@ -52,7 +54,7 @@ async function autoSelectProperty(workspaceId: string): Promise<string | undefin
     const ids = (parsed.accountSummaries ?? []).flatMap((a) =>
       (a.propertySummaries ?? []).map((p) => (p.property ?? "").replace("properties/", "")),
     ).filter(Boolean);
-    if (ids.length !== 1) return undefined;
+    if (ids.length !== 1) return { empty: ids.length === 0 };
     const propertyId = ids[0]!;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await supabaseAdmin.from("integration_credentials").upsert(
@@ -64,9 +66,9 @@ async function autoSelectProperty(workspaceId: string): Promise<string | undefin
       .update({ status: "connected", account: `GA4 · ${propertyId}` })
       .eq("workspace_id", workspaceId)
       .eq("provider", "analytics");
-    return propertyId;
+    return { propertyId, empty: false };
   } catch {
-    return undefined;
+    return { empty: false };
   }
 }
 
@@ -89,13 +91,21 @@ export async function ga4SnapshotDetailed(
       };
     }
     let { propertyId } = await loadGa4Config(workspaceId);
+    let noProperties = false;
     if (!propertyId) {
       // اختيار تلقائي حين لا يملك الحساب سوى خاصية واحدة — لا نطلب من المستخدم خطوة إضافية بلا داعٍ.
-      propertyId = await autoSelectProperty(workspaceId);
+      const auto = await autoSelectProperty(workspaceId);
+      propertyId = auto.propertyId;
+      noProperties = auto.empty;
     }
     if (!propertyId) {
       return {
-        status: { state: "not_selected", message: "الحساب مربوط لكن لم تختر خاصية GA4 بعد — اختر الخاصية من صفحة التكاملات." },
+        status: {
+          state: "not_selected",
+          message: noProperties
+            ? "حساب Google مربوط لكن لا توجد به أي خاصية Google Analytics 4 — أنشئ خاصية GA4 لموقعك ثم أعد المحاولة."
+            : "الحساب مربوط لكن لم تختر خاصية GA4 بعد — اختر الخاصية من صفحة التكاملات.",
+        },
         snapshot: null,
       };
     }
