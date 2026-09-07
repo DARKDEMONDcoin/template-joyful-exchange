@@ -149,14 +149,14 @@ export async function gscSnapshotDetailed(
   try {
     if (!(await hasGoogleAccount(workspaceId, "search-console"))) {
       return {
-        status: { state: "not_connected", message: "Search Console غير مربوط — اربط حساب Google من صفحة التكاملات." },
+        status: { state: "not_connected", message: "Search Console غير مربوط — اربط حساب Google بضغطة من قسم «الترتيب» أو «التقارير»." },
         snapshot: null,
       };
     }
     const config = await loadConfig(workspaceId);
     if (!config.siteUrl) {
       return {
-        status: { state: "not_selected", message: "الحساب مربوط لكن لم تختر موقعاً بعد — اختر الموقع من صفحة التكاملات." },
+        status: { state: "not_selected", message: "الحساب مربوط لكن لم تختر موقعاً بعد — اختر الموقع من قسم «الترتيب»." },
         snapshot: null,
       };
     }
@@ -188,7 +188,7 @@ export async function gscSnapshotDetailed(
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
     const message = /401|403|invalid_grant|unauth/i.test(raw)
-      ? "انتهت صلاحية ربط Google — أعد ربط Search Console من صفحة التكاملات."
+      ? "انتهت صلاحية ربط Google — أعد ربط Search Console بضغطة من قسم «الترتيب»."
       : `تعذّر جلب بيانات Search Console: ${raw.slice(0, 160)}`;
     console.error("[gsc] snapshot failed", raw);
     return { status: { state: "error", message }, snapshot: null };
