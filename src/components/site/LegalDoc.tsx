@@ -177,7 +177,7 @@ export function LegalDoc({
               <Printer className="size-4" />
               طباعة أو حفظ PDF
             </button>
-          </div>
+          </details>
         </aside>
 
         <div className="min-w-0 space-y-10">
