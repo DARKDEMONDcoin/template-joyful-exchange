@@ -252,15 +252,14 @@ export function AppShell({
               {actions}
               <Link
                 to="/app/approvals"
-                className="relative grid size-10 place-items-center rounded-xl border border-border transition-colors hover:bg-secondary"
+                className="relative hidden size-10 place-items-center rounded-xl border border-border transition-colors hover:bg-secondary sm:grid"
                 aria-label="التنبيهات"
               >
                 <Bell className="size-4.5" />
               </Link>
-              <span className="grid size-10 place-items-center rounded-xl bg-foreground font-display text-sm font-black text-background">
-                {initial}
-              </span>
+              <UserMenu initial={initial} name={profile?.full_name ?? null} />
             </div>
+
           </div>
         </header>
         <GuestBar />
