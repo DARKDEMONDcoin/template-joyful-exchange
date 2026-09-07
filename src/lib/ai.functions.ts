@@ -696,7 +696,7 @@ export const askEmployee = createServerFn({ method: "POST" })
       // أول مرة: نلتقط صور الموقع الآن ثم نحفظها للمرات القادمة.
       if (!pool.length && workspace?.website) {
         const { harvestSiteImages } = await import("./brand-assets.server");
-        const found = await harvestSiteImages(workspace.website, 4);
+        const found = await harvestSiteImages(workspace.website, 10);
         if (found.length) {
           await supabase.from("site_assets").upsert(
             found.map((a) => ({
