@@ -42,6 +42,34 @@ async function runReport(
   );
 }
 
+/** يختار خاصية GA4 تلقائياً حين تكون واحدة فقط، ويحفظها للمرات القادمة. */
+async function autoSelectProperty(workspaceId: string): Promise<string | undefined> {
+  try {
+    const { googleDataRequest } = await import("./google-data.server");
+    const parsed = await googleDataRequest<{
+      accountSummaries?: { propertySummaries?: { property?: string }[] }[];
+    }>(workspaceId, "analytics", "https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=50");
+    const ids = (parsed.accountSummaries ?? []).flatMap((a) =>
+      (a.propertySummaries ?? []).map((p) => (p.property ?? "").replace("properties/", "")),
+    ).filter(Boolean);
+    if (ids.length !== 1) return undefined;
+    const propertyId = ids[0]!;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await supabaseAdmin.from("integration_credentials").upsert(
+      { workspace_id: workspaceId, provider: "analytics", config: { propertyId } as unknown as Record<string, string> },
+      { onConflict: "workspace_id,provider" },
+    );
+    await supabaseAdmin
+      .from("integrations")
+      .update({ status: "connected", account: `GA4 · ${propertyId}` })
+      .eq("workspace_id", workspaceId)
+      .eq("provider", "analytics");
+    return propertyId;
+  } catch {
+    return undefined;
+  }
+}
+
 /** لقطة GA4 داخلية لنور — ترجع null إن لم يكن الربط جاهزاً. */
 export async function ga4SnapshotFor(workspaceId: string, days = 28): Promise<Ga4Snapshot | null> {
   return (await ga4SnapshotDetailed(workspaceId, days)).snapshot;
@@ -60,13 +88,18 @@ export async function ga4SnapshotDetailed(
         snapshot: null,
       };
     }
-    const { propertyId } = await loadGa4Config(workspaceId);
+    let { propertyId } = await loadGa4Config(workspaceId);
+    if (!propertyId) {
+      // اختيار تلقائي حين لا يملك الحساب سوى خاصية واحدة — لا نطلب من المستخدم خطوة إضافية بلا داعٍ.
+      propertyId = await autoSelectProperty(workspaceId);
+    }
     if (!propertyId) {
       return {
         status: { state: "not_selected", message: "الحساب مربوط لكن لم تختر خاصية GA4 بعد — اختر الخاصية من صفحة التكاملات." },
         snapshot: null,
       };
     }
+
     const start = `${days}daysAgo`;
     const end = "yesterday";
     const dateRanges = [{ startDate: start, endDate: end }];
