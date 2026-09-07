@@ -43,6 +43,8 @@ const field =
 
 function SettingsPage() {
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("workspace");
+  const { country, setCountry } = useRegion();
+
   const { data: workspace } = useWorkspace();
   const { data: profile } = useProfile();
   const { data: tasks } = useTasks(workspace?.id);
