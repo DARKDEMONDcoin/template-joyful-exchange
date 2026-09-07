@@ -84,7 +84,7 @@ export function MediaStudio({
   const assetsQuery = useQuery({
     queryKey: ["site-assets", workspaceId],
     enabled: Boolean(workspaceId) && open,
-    queryFn: () => listAssets({ data: { workspaceId: workspaceId!, limit: 12 } }),
+    queryFn: () => listAssets({ data: { workspaceId: workspaceId!, limit: 40 } }),
   });
   const siteAssets: StoredAsset[] = assetsQuery.data?.assets ?? [];
   const sync = useMutation({

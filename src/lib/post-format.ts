@@ -40,6 +40,14 @@ const DROP_LINE = [
 export function sanitizePostBody(input: string | null | undefined): string {
   if (!input) return "";
   let text = input
+    // أكواد وبقايا JSON لا تُنشر أبداً.
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s*\{[\s\S]*?\}\s*$/gm, "")
+    .replace(/^\s*["']?(?:reply|body|title|kind|channel|scheduled|image_prompt|deliverables?)["']?\s*:.*$/gim, "")
+    // اقتباسات الحواشي («استندت إلى…»، تذييل الأدوات) كلام موظف لا منشور.
+    .replace(/^\s*>.*$/gm, "")
+    .replace(/^\s*—\s*استندت.*$/gm, "")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
     .replace(/!\[([^\]]*)\]/g, "$1")
@@ -60,13 +68,29 @@ export function sanitizePostBody(input: string | null | undefined): string {
     if (line.trim() && DROP_LINE.some((re) => re.test(line))) continue;
     kept.push(line);
   }
-  text = kept.join("\n");
+  text = dedupeParagraphs(kept.join("\n"));
 
   return text
     .replace(/[ \t]+$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+/** يحذف الفقرات المكرّرة حرفياً (تكرار الملخص ونص المنشور في الرد نفسه). */
+export function dedupeParagraphs(input: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const block of input.split(/\n{2,}/)) {
+    const key = block.replace(/\s+/g, " ").replace(/[*_#>`]/g, "").trim().toLowerCase();
+    if (key.length > 24) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(block);
+  }
+  return out.join("\n\n");
+}
+
 
 /**
  * هل الرد مجرد كلام موظف (اعتذار/رفض/سؤال/توضيح) وليس منشوراً؟

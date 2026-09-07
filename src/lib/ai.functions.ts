@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { freeChat } from "@/lib/nour-research.server";
 import { actionTruthRules, sanitizeActionClaims } from "@/lib/action-claims";
+import { dedupeParagraphs } from "@/lib/post-format";
 import {
   craft,
   evidenceRules,
@@ -672,9 +673,13 @@ export const askEmployee = createServerFn({ method: "POST" })
         : `${reply.trim()}\n\n📋 جهّزت **${deliverables.length} مخرجات** جاهزة، كل واحد بنصه الكامل — راجعها واعتمدها من [المخرجات والمهام](/app/tasks).`;
     }
 
-    // صور من موقع المستخدم نفسه: نقترح الأنسب لطلبه ليستخدمها بدل صورة مولّدة.
+    // صور من موقع المستخدم: اختيارية تماماً — تظهر فقط حين يطلبها في رسالته.
+    const wantsSiteImages =
+      /(صور|صورة|صور\s*من)\s*(من\s*)?(موقعي|الموقع|موقعنا)|صور\s+موقع|من\s+صور\s+موقعي|استخدم\s+صور\s+موقع/u.test(
+        data.message ?? "",
+      );
     let siteSuggestions: { url: string; alt: string; pageUrl: string }[] = [];
-    try {
+    if (wantsSiteImages) try {
       const { data: stored } = await supabase
         .from("site_assets")
         .select("url, alt, page_url, weight")
@@ -692,7 +697,7 @@ export const askEmployee = createServerFn({ method: "POST" })
       // أول مرة: نلتقط صور الموقع الآن ثم نحفظها للمرات القادمة.
       if (!pool.length && workspace?.website) {
         const { harvestSiteImages } = await import("./brand-assets.server");
-        const found = await harvestSiteImages(workspace.website, 4);
+        const found = await harvestSiteImages(workspace.website, 10);
         if (found.length) {
           await supabase.from("site_assets").upsert(
             found.map((a) => ({
@@ -713,7 +718,7 @@ export const askEmployee = createServerFn({ method: "POST" })
       if (pool.length) {
         const { rankAssets } = await import("./brand-assets.server");
         const query = `${data.message}\n${deliverables.map((d) => `${d.title ?? ""} ${d.body ?? ""}`).join("\n")}`;
-        siteSuggestions = rankAssets(query, pool, 3).map((a) => ({
+        siteSuggestions = rankAssets(query, pool, 12).map((a) => ({
           url: a.url,
           alt: a.alt,
           pageUrl: a.pageUrl,
@@ -734,6 +739,8 @@ export const askEmployee = createServerFn({ method: "POST" })
       reply = `${reply.trim()}\n\n### 📸 صور من موقعك تصلح لهذا المحتوى\n\n${gallery}\n\nاختر أي صورة منها بدل الصورة المولّدة — كلها صور حقيقية من موقعك.`;
     }
 
+    // منع التكرار: أحياناً يعيد النموذج نفس الفقرة مرتين (ملخص + مخرج) — نُبقي أول ظهور فقط.
+    reply = dedupeParagraphs(reply);
 
     const { data: assistantRow, error: assistantError } = await supabase
       .from("messages")
@@ -750,12 +757,12 @@ export const askEmployee = createServerFn({ method: "POST" })
 
     let createdTaskId: string | null = null;
     for (const deliverable of deliverables) {
-      // صورة المخرج: المولّدة، وإلا صورة أرفقها المستخدم، وإلا صورة حقيقية من موقعه.
+      // صورة المخرج: المولّدة، وإلا صورة أرفقها المستخدم فقط — لا نُلصق صور الموقع تلقائياً.
       const mediaUrl =
         imageUrl ??
         attachments.find((a) => a.type === "image")?.url ??
-        siteSuggestions[0]?.url ??
-        null;
+        (wantsSiteImages ? (siteSuggestions[0]?.url ?? null) : null);
+
       const output = mediaUrl
         ? `![${deliverable.title}](${mediaUrl})\n\n${deliverable.body!}`
         : deliverable.body!;
