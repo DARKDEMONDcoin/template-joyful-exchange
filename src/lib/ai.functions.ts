@@ -738,6 +738,8 @@ export const askEmployee = createServerFn({ method: "POST" })
       reply = `${reply.trim()}\n\n### 📸 صور من موقعك تصلح لهذا المحتوى\n\n${gallery}\n\nاختر أي صورة منها بدل الصورة المولّدة — كلها صور حقيقية من موقعك.`;
     }
 
+    // منع التكرار: أحياناً يعيد النموذج نفس الفقرة مرتين (ملخص + مخرج) — نُبقي أول ظهور فقط.
+    reply = dedupeParagraphs(reply);
 
     const { data: assistantRow, error: assistantError } = await supabase
       .from("messages")
@@ -754,12 +756,12 @@ export const askEmployee = createServerFn({ method: "POST" })
 
     let createdTaskId: string | null = null;
     for (const deliverable of deliverables) {
-      // صورة المخرج: المولّدة، وإلا صورة أرفقها المستخدم، وإلا صورة حقيقية من موقعه.
+      // صورة المخرج: المولّدة، وإلا صورة أرفقها المستخدم فقط — لا نُلصق صور الموقع تلقائياً.
       const mediaUrl =
         imageUrl ??
         attachments.find((a) => a.type === "image")?.url ??
-        siteSuggestions[0]?.url ??
-        null;
+        (wantsSiteImages ? (siteSuggestions[0]?.url ?? null) : null);
+
       const output = mediaUrl
         ? `![${deliverable.title}](${mediaUrl})\n\n${deliverable.body!}`
         : deliverable.body!;
