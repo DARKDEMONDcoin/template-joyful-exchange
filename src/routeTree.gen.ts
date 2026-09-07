@@ -54,8 +54,10 @@ import { Route as ApiPublicMorningBriefingRouteImport } from './routes/api/publi
 import { Route as ApiPublicNourAutomationsRouteImport } from './routes/api/public/nour-automations'
 import { Route as ApiPublicNourWeeklyRouteImport } from './routes/api/public/nour-weekly'
 import { Route as ApiPublicPipedreamWebhookRouteImport } from './routes/api/public/pipedream-webhook'
+import { Route as ApiPublicPxRouteImport } from './routes/api/public/px'
 import { Route as ApiPublicSocialAutopilotRouteImport } from './routes/api/public/social-autopilot'
 import { Route as ApiPublicSocialQueueRouteImport } from './routes/api/public/social-queue'
+import { Route as ApiPublicTrackRouteImport } from './routes/api/public/track'
 import { Route as AppChatIndexRouteImport } from './routes/app.chat.index'
 import { Route as AppChatIdRouteImport } from './routes/app.chat.$id'
 import { Route as ApiPublicMetaCallbackRouteImport } from './routes/api/public/meta.callback'
@@ -288,6 +290,11 @@ const ApiPublicPipedreamWebhookRoute =
     path: '/api/public/pipedream-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicPxRoute = ApiPublicPxRouteImport.update({
+  id: '/api/public/px',
+  path: '/api/public/px',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicSocialAutopilotRoute =
   ApiPublicSocialAutopilotRouteImport.update({
     id: '/api/public/social-autopilot',
@@ -297,6 +304,11 @@ const ApiPublicSocialAutopilotRoute =
 const ApiPublicSocialQueueRoute = ApiPublicSocialQueueRouteImport.update({
   id: '/api/public/social-queue',
   path: '/api/public/social-queue',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicTrackRoute = ApiPublicTrackRouteImport.update({
+  id: '/api/public/track',
+  path: '/api/public/track',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppChatIndexRoute = AppChatIndexRouteImport.update({
@@ -361,8 +373,10 @@ export interface FileRoutesByFullPath {
   '/api/public/nour-automations': typeof ApiPublicNourAutomationsRoute
   '/api/public/nour-weekly': typeof ApiPublicNourWeeklyRoute
   '/api/public/pipedream-webhook': typeof ApiPublicPipedreamWebhookRoute
+  '/api/public/px': typeof ApiPublicPxRoute
   '/api/public/social-autopilot': typeof ApiPublicSocialAutopilotRoute
   '/api/public/social-queue': typeof ApiPublicSocialQueueRoute
+  '/api/public/track': typeof ApiPublicTrackRoute
   '/app/chat/$id': typeof AppChatIdRoute
   '/app/chat/': typeof AppChatIndexRoute
   '/api/public/meta/callback': typeof ApiPublicMetaCallbackRoute
@@ -412,8 +426,10 @@ export interface FileRoutesByTo {
   '/api/public/nour-automations': typeof ApiPublicNourAutomationsRoute
   '/api/public/nour-weekly': typeof ApiPublicNourWeeklyRoute
   '/api/public/pipedream-webhook': typeof ApiPublicPipedreamWebhookRoute
+  '/api/public/px': typeof ApiPublicPxRoute
   '/api/public/social-autopilot': typeof ApiPublicSocialAutopilotRoute
   '/api/public/social-queue': typeof ApiPublicSocialQueueRoute
+  '/api/public/track': typeof ApiPublicTrackRoute
   '/app/chat/$id': typeof AppChatIdRoute
   '/app/chat': typeof AppChatIndexRoute
   '/api/public/meta/callback': typeof ApiPublicMetaCallbackRoute
@@ -465,8 +481,10 @@ export interface FileRoutesById {
   '/api/public/nour-automations': typeof ApiPublicNourAutomationsRoute
   '/api/public/nour-weekly': typeof ApiPublicNourWeeklyRoute
   '/api/public/pipedream-webhook': typeof ApiPublicPipedreamWebhookRoute
+  '/api/public/px': typeof ApiPublicPxRoute
   '/api/public/social-autopilot': typeof ApiPublicSocialAutopilotRoute
   '/api/public/social-queue': typeof ApiPublicSocialQueueRoute
+  '/api/public/track': typeof ApiPublicTrackRoute
   '/app/chat/$id': typeof AppChatIdRoute
   '/app/chat/': typeof AppChatIndexRoute
   '/api/public/meta/callback': typeof ApiPublicMetaCallbackRoute
@@ -519,8 +537,10 @@ export interface FileRouteTypes {
     | '/api/public/nour-automations'
     | '/api/public/nour-weekly'
     | '/api/public/pipedream-webhook'
+    | '/api/public/px'
     | '/api/public/social-autopilot'
     | '/api/public/social-queue'
+    | '/api/public/track'
     | '/app/chat/$id'
     | '/app/chat/'
     | '/api/public/meta/callback'
@@ -570,8 +590,10 @@ export interface FileRouteTypes {
     | '/api/public/nour-automations'
     | '/api/public/nour-weekly'
     | '/api/public/pipedream-webhook'
+    | '/api/public/px'
     | '/api/public/social-autopilot'
     | '/api/public/social-queue'
+    | '/api/public/track'
     | '/app/chat/$id'
     | '/app/chat'
     | '/api/public/meta/callback'
@@ -622,8 +644,10 @@ export interface FileRouteTypes {
     | '/api/public/nour-automations'
     | '/api/public/nour-weekly'
     | '/api/public/pipedream-webhook'
+    | '/api/public/px'
     | '/api/public/social-autopilot'
     | '/api/public/social-queue'
+    | '/api/public/track'
     | '/app/chat/$id'
     | '/app/chat/'
     | '/api/public/meta/callback'
@@ -662,8 +686,10 @@ export interface RootRouteChildren {
   ApiPublicNourAutomationsRoute: typeof ApiPublicNourAutomationsRoute
   ApiPublicNourWeeklyRoute: typeof ApiPublicNourWeeklyRoute
   ApiPublicPipedreamWebhookRoute: typeof ApiPublicPipedreamWebhookRoute
+  ApiPublicPxRoute: typeof ApiPublicPxRoute
   ApiPublicSocialAutopilotRoute: typeof ApiPublicSocialAutopilotRoute
   ApiPublicSocialQueueRoute: typeof ApiPublicSocialQueueRoute
+  ApiPublicTrackRoute: typeof ApiPublicTrackRoute
   ApiPublicMetaCallbackRoute: typeof ApiPublicMetaCallbackRoute
 }
 
@@ -984,6 +1010,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicPipedreamWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/px': {
+      id: '/api/public/px'
+      path: '/api/public/px'
+      fullPath: '/api/public/px'
+      preLoaderRoute: typeof ApiPublicPxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/social-autopilot': {
       id: '/api/public/social-autopilot'
       path: '/api/public/social-autopilot'
@@ -996,6 +1029,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/social-queue'
       fullPath: '/api/public/social-queue'
       preLoaderRoute: typeof ApiPublicSocialQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/track': {
+      id: '/api/public/track'
+      path: '/api/public/track'
+      fullPath: '/api/public/track'
+      preLoaderRoute: typeof ApiPublicTrackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app/chat/': {
@@ -1093,8 +1133,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicNourAutomationsRoute: ApiPublicNourAutomationsRoute,
   ApiPublicNourWeeklyRoute: ApiPublicNourWeeklyRoute,
   ApiPublicPipedreamWebhookRoute: ApiPublicPipedreamWebhookRoute,
+  ApiPublicPxRoute: ApiPublicPxRoute,
   ApiPublicSocialAutopilotRoute: ApiPublicSocialAutopilotRoute,
   ApiPublicSocialQueueRoute: ApiPublicSocialQueueRoute,
+  ApiPublicTrackRoute: ApiPublicTrackRoute,
   ApiPublicMetaCallbackRoute: ApiPublicMetaCallbackRoute,
 }
 export const routeTree = rootRouteImport

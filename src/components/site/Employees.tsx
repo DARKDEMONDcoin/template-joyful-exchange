@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Megaphone, Mail, Handshake, PenTool, Palette, LineChart } from "lucide-react";
 import { Reveal } from "@/components/Reveal";
-import { Portrait, RegionPicker } from "@/components/site/Portrait";
+import { Portrait } from "@/components/site/Portrait";
 import { cn } from "@/lib/utils";
 
 type Employee = {
@@ -144,12 +144,8 @@ export function Employees() {
         </h2>
         <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
           كل موظف متخصص في مجاله ومتصل ببقية الفريق. يتشاركون نفس السياق عن شركتك، فلا تشرح نفسك
-          مرتين — ويظهرون لك بزيّ بلدك من مصر إلى المغرب ومن الخليج إلى السودان.
+          مرتين.
         </p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <span className="text-sm font-semibold text-muted-foreground">فريقك بزيّ بلدك:</span>
-          <RegionPicker />
-        </div>
       </Reveal>
 
       <div className="mt-12 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">

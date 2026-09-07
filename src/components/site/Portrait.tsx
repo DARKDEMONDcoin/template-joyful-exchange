@@ -12,28 +12,24 @@ type PortraitProps = {
   eager?: boolean;
 };
 
-/** صورة الموظف بالزي المناسب لبلد الزائر. */
+/** صورة الموظف — نفسها في كل مكان بالموقع. */
 export function Portrait({ memberId, name, className, eager }: PortraitProps) {
-  const { region } = useRegion();
   return (
     <img
-      key={`${memberId}-${region}`}
-      src={portraitOf(memberId, region)}
+      key={memberId}
+      src={portraitOf(memberId)}
       alt={`${name} — موظف رقمي في سهل`}
       width={768}
       height={768}
       loading={eager ? "eager" : "lazy"}
-      className={cn(
-        "animate-[ticker-up_0.45s_var(--ease-enter)] object-cover object-top",
-        className,
-      )}
+      className={cn("object-cover object-top", className)}
     />
   );
 }
 
+
 /**
- * مبدّل البلد — يعرض كل الدول العربية الـ22 مجمّعة حسب المنطقة.
- * يُكتشف بلد الزائر تلقائياً، ويستطيع تغييره في أي وقت.
+ * مبدّل البلد — يُكتشف بلد الزائر تلقائياً ويستطيع تغييره في أي وقت.
  */
 export function RegionPicker({ className }: { className?: string }) {
   const { country, countryInfo, setCountry, auto } = useRegion();
@@ -44,7 +40,7 @@ export function RegionPicker({ className }: { className?: string }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="اختر بلدك ليظهر الفريق بزيّه"
+          aria-label="اختر بلدك"
           className={cn(
             "group inline-flex items-center gap-2 rounded-full border border-border bg-card/80 py-1.5 pr-1.5 pl-4 text-sm font-bold shadow-card backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lift",
             className,
@@ -72,9 +68,9 @@ export function RegionPicker({ className }: { className?: string }) {
         sideOffset={10}
         className="w-[min(92vw,34rem)] rounded-3xl border-border bg-card p-5 shadow-lift"
       >
-        <p className="font-display text-base font-extrabold">فريقك بزيّ بلدك</p>
+        <p className="font-display text-base font-extrabold">اختر بلدك</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          نفس الموظفين، بملابس تناسب ثقافة كل بلد عربي. اختر بلدك:
+          نعرض لك الأسعار والمحتوى بما يناسب بلدك:
         </p>
         <div className="mt-4 space-y-4">
           {COUNTRY_GROUPS.map((g) => (
