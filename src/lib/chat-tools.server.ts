@@ -576,12 +576,16 @@ export async function runChatTools(
       employeeDirectory[params.employeeId as keyof typeof employeeDirectory]?.integrations.map((i) => i.provider) ?? [];
     const on = mine.filter((p) => params.connected.includes(p));
     const off = mine.filter((p) => !params.connected.includes(p));
+    const others = params.connected.filter((p) => !mine.includes(p));
     out.push({
       tool: "integrations-status",
       block: [
         "### حالة تكاملاتك الحقيقية الآن",
-        on.length ? `مربوط ويعمل: ${on.map(providerLabel).join("، ")}` : "لا توجد منصة مربوطة بعد ضمن اختصاصك.",
+        on.length ? `مربوط ويعمل ضمن اختصاصك: ${on.map(providerLabel).join("، ")}` : "لا توجد منصة مربوطة بعد ضمن اختصاصك.",
         off.length ? `غير مربوط: ${off.map(providerLabel).join("، ")}` : "",
+      others.length
+        ? `مربوط في مساحة العمل لدى زملائك (يمكنك الإحالة إليه لا ادّعاء استخدامه): ${others.map(providerLabel).join("، ")}`
+        : "",
         "اذكر المربوط فقط كقدرات جاهزة الآن، واعرض ربط الناقص بضغطة من «التكاملات» دون إلحاح.",
       ]
         .filter(Boolean)
