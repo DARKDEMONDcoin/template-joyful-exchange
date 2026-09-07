@@ -20,14 +20,19 @@ import {
   Bell,
   Menu,
   X,
+  User,
+  LogOut,
 } from "lucide-react";
 
 import { team } from "@/data/team";
+import { COUNTRIES } from "@/data/team-portraits";
+import { useRegion } from "@/hooks/use-region";
 import { supabase } from "@/integrations/supabase/client";
 import { GUEST_EMAIL } from "@/lib/guest.functions";
 
 import { useProfile, useTasks, useWorkspace } from "@/lib/data";
 import { cn } from "@/lib/utils";
+
 
 /** الأساسي دائماً ظاهر؛ الباقي خلف «المزيد» حتى تبقى الواجهة هادئة. */
 const primaryNav = [
@@ -196,6 +201,95 @@ function GuestBar() {
     </div>
   );
 }
+
+/** قائمة المستخدم: اسمه وبريده، والملف الشخصي، وزي الفريق، وتسجيل الخروج. */
+function UserMenu({ initial, name }: { initial: string; name: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState<string | null>(null);
+  const { country, countryInfo, setCountry } = useRegion();
+
+  useEffect(() => {
+    let alive = true;
+    void supabase.auth.getUser().then(({ data }) => {
+      if (alive) setEmail(data.user?.email ?? null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="حسابك"
+        aria-expanded={open}
+        className="grid size-10 place-items-center rounded-xl bg-foreground font-display text-sm font-black text-background"
+      >
+        {initial}
+      </button>
+      {open ? (
+        <>
+          <button
+            aria-label="إغلاق"
+            className="fixed inset-0 z-40 cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute end-0 z-50 mt-2 w-[min(88vw,17rem)] rounded-2xl border border-border bg-card p-2 shadow-lift">
+            <div className="px-3 py-2">
+              <p className="truncate text-sm font-bold">{name ?? "حسابك"}</p>
+              {email ? (
+                <p className="truncate text-xs text-muted-foreground">{email}</p>
+              ) : null}
+            </div>
+            <Link
+              to="/app/settings"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-bold hover:bg-secondary"
+            >
+              <User className="size-4" /> الملف الشخصي والإعدادات
+            </Link>
+
+            <div className="mt-1 rounded-xl bg-secondary/50 p-3">
+              <p className="text-xs font-bold">زيّ الفريق</p>
+              <p className="mt-0.5 text-[0.7rem] text-muted-foreground">
+                اختياري — اعرض الموظفين بلبس أي دولة عربية.
+              </p>
+              <select
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                aria-label="زي الفريق حسب الدولة"
+                className="mt-2 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm font-semibold"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[0.68rem] text-muted-foreground">
+                الحالي: {countryInfo.name}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                await supabase.auth.signOut();
+                window.location.href = "/";
+              }}
+              className="mt-1 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-start text-sm font-bold text-coral hover:bg-coral/10"
+            >
+              <LogOut className="size-4" /> تسجيل الخروج
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 
 export function AppShell({
 
