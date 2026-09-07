@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-const { data: conns } = await supabaseAdmin.from("meta_connections").select("workspace_id,kind,page_id,page_name,status,last_error,token_expires_at");
-console.log("connections:", conns);
-const { data: posts } = await supabaseAdmin.from("social_posts").select("provider,status,last_error,published_at,created_at").order("created_at",{ascending:false}).limit(8);
-console.log("recent posts:", posts);
+const { data } = await supabaseAdmin.from("meta_connections").select("page_id,page_access_token").eq("kind","facebook").limit(1).single();
+const r = await fetch(`https://graph.facebook.com/v23.0/${data!.page_id}?fields=name,fan_count&access_token=${data!.page_access_token}`);
+console.log("page:", r.status, (await r.text()).slice(0,300));
+const p = await fetch(`https://graph.facebook.com/v23.0/${data!.page_id}/feed?limit=3&fields=message,created_time&access_token=${data!.page_access_token}`);
+console.log("feed:", p.status, (await p.text()).slice(0,500));
