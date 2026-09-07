@@ -337,6 +337,8 @@ export const askEmployee = createServerFn({ method: "POST" })
         country: ws.country,
         connected,
         targets: askedTargets,
+        industry: workspace.industry,
+        brand: workspace.name,
       });
     } catch (e) {
       console.warn("[chat-tools] skipped:", e instanceof Error ? e.message : e);

@@ -66,6 +66,14 @@ function domainsIn(text: string): string[] {
 const STOP =
   /^(عايز|عاوز|أريد|اريد|من|في|على|علي|إلى|الى|عن|مع|هذا|هذه|ذلك|اللي|الذي|التي|كل|كام|إيه|ايه|ازاي|إزاي|كيف|ليه|لماذا|هو|هي|أنا|انا|لي|لك|موقعي|موقع|خلال|يوم|شهر|سنة|جوجل|google|seo|سيو|خطة|واكتبلي|اكتبلي|هات|شوف|افحص|قارني|قارن|حدد|بحث|و|أو|او|ثم)$/i;
 
+const COUNTRY_WORD: Record<string, string> = {
+  EG: "مصر", SA: "السعودية", AE: "الإمارات", KW: "الكويت", QA: "قطر", OM: "عمان",
+  BH: "البحرين", JO: "الأردن", MA: "المغرب", DZ: "الجزائر", TN: "تونس", IQ: "العراق",
+};
+function countryWord(code?: string | null): string {
+  return code ? (COUNTRY_WORD[code.toUpperCase()] ?? "") : "";
+}
+
 /** بذرة بحث بشرية من نص الرسالة (لا اسم النطاق) — لأن اقتراحات جوجل لا تفهم النطاقات. */
 function topicSeed(text: string): string | null {
   const cleaned = text
@@ -91,6 +99,9 @@ export async function runChatTools(
     connected: string[];
     /** المنصات التي طلبها المستخدم صراحةً. */
     targets: string[];
+    /** مجال النشاط واسم العلامة — أدق بذرة بحث من اسم النطاق. */
+    industry?: string | null;
+    brand?: string | null;
   },
 ): Promise<ChatToolResult[]> {
   const text = params.message;
@@ -105,7 +116,13 @@ export async function runChatTools(
     const rivalHosts = domainsIn(text).filter((d) => d !== ownHost).slice(0, 2);
     const explicitUrl = urlIn(text, null);
     const url = explicitUrl && hostOf(explicitUrl) === ownHost ? explicitUrl : (params.website ?? explicitUrl);
-    const topic = keywordIn(text) ?? topicSeed(text) ?? ownHost;
+    // ترتيب ذكي للبذرة: كلمة صريحة من المستخدم ← نشاط العلامة وسوقها ← نص الرسالة ← النطاق.
+    const marketWord = countryWord(params.country);
+    const topic =
+      keywordIn(text) ??
+      (params.industry ? `${params.industry}${marketWord ? ` ${marketWord}` : ""}` : null) ??
+      topicSeed(text) ??
+      ownHost;
 
     /** طلب استراتيجي شامل: نشغّل كل الأدوات معاً بدل انتظار أن يطلبها المستخدم واحدة واحدة. */
     const bigAsk =
