@@ -7,6 +7,8 @@ import { PublishPanel } from "@/components/app/PublishPanel";
 import { AppIcon, appLabel } from "@/components/site/AppIcon";
 import { getMember } from "@/data/team";
 import { useTasks, useUpdateTask, useWorkspace } from "@/lib/data";
+import { sanitizePostBody } from "@/lib/post-format";
+
 
 export const Route = createFileRoute("/app/approvals")({
   head: () => ({
