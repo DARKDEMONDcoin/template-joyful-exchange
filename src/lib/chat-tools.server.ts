@@ -52,6 +52,34 @@ function daysIn(text: string): number {
   return 7;
 }
 
+/** كل النطاقات المذكورة في الرسالة (لفصل موقع المستخدم عن منافسيه). */
+function domainsIn(text: string): string[] {
+  const re = /(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:\/\S*)?/gi;
+  const out: string[] = [];
+  for (const m of text.matchAll(re)) {
+    const d = (m[1] ?? "").toLowerCase().replace(/^www\./, "");
+    if (d && !out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+const STOP =
+  /^(عايز|عاوز|أريد|اريد|من|في|على|علي|إلى|الى|عن|مع|هذا|هذه|ذلك|اللي|الذي|التي|كل|كام|إيه|ايه|ازاي|إزاي|كيف|ليه|لماذا|هو|هي|أنا|انا|لي|لك|موقعي|موقع|خلال|يوم|شهر|سنة|جوجل|google|seo|سيو|خطة|واكتبلي|اكتبلي|هات|شوف|افحص|قارني|قارن|حدد|بحث|و|أو|او|ثم)$/i;
+
+/** بذرة بحث بشرية من نص الرسالة (لا اسم النطاق) — لأن اقتراحات جوجل لا تفهم النطاقات. */
+function topicSeed(text: string): string | null {
+  const cleaned = text
+    .replace(/(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/gi, " ")
+    .replace(/[«»"“”'(),.:؛;!؟?\-–—|]/g, " ");
+  const words = cleaned
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 2 && !STOP.test(w) && !/^\d+$/.test(w));
+  if (words.length < 2) return null;
+  return words.slice(0, 5).join(" ");
+}
+
+
 export async function runChatTools(
   admin: Admin,
   params: {
