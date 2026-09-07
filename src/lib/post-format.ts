@@ -42,9 +42,14 @@ export function sanitizePostBody(input: string | null | undefined): string {
   let text = input
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
+    // روابط الوسائط المؤقتة (تخزين سوبابيز/صور موقّعة) لا مكان لها داخل نص المنشور.
+    .replace(/\(?https?:\/\/\S*(?:\/storage\/v1\/|\.(?:jpe?g|png|webp|gif|mp4)(?:\?\S*)?)\)?/gi, "")
     .replace(/^\s*(?:---|\*\*\*|___)\s*$/gm, "")
     .replace(/^#{1,6}\s*/gm, "")
-    .replace(/\*\*/g, "");
+    .replace(/\*\*/g, "")
+    // بقايا أقواس فارغة بعد إزالة الروابط.
+    .replace(/\[\s*\]|\(\s*\)/g, "");
+
 
   const lines = text.split("\n");
   const kept: string[] = [];
