@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -11,10 +11,12 @@ import {
   AlertTriangle,
   XCircle,
   Gauge,
+  Send,
 } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
 import { AppIcon, appLabel } from "@/components/site/AppIcon";
+import { Portrait } from "@/components/site/Portrait";
 import { getMember } from "@/data/team";
 import { discoverBrand, type DiscoveryReport } from "@/lib/discovery.functions";
 import { useWorkspace } from "@/lib/data";
@@ -26,7 +28,7 @@ export const Route = createFileRoute("/app/discovery")({
       { title: "كشف العلامة والموقع | سهل" },
       {
         name: "description",
-        content: "تقرير شامل عن موقعك: سيو، فرص كلمات البحث، المنافسون، حضورك على المنصات، وخطة عمل مرتّبة.",
+        content: "حوار قصير مع نور ينتهي بتقرير كامل عن علامتك: سيو، فرص البحث، المنافسون، حضورك، وخطة البداية.",
       },
       { name: "robots", content: "noindex" },
     ],
@@ -37,61 +39,230 @@ export const Route = createFileRoute("/app/discovery")({
 const field =
   "w-full rounded-2xl border border-border bg-background px-4 py-3 outline-none focus:border-jade";
 
+type Turn = { from: "nour" | "me"; text: string };
+type Step = "url" | "goal" | "rivals" | "running" | "done";
+
+const GOALS = ["مبيعات أكثر", "زيارات من جوجل", "حجوزات ومكالمات", "وعي بالعلامة"];
+
+const SCAN_STEPS = [
+  "أقرأ صفحات موقعك وأفهم نشاطك",
+  "أفحص السيو والسرعة فحصاً حقيقياً",
+  "أقيس طلب الكلمات في بحث جوجل وبينج",
+  "أجرد محتوى منافسيك من خرائط مواقعهم",
+  "أبحث عن حضورك على المنصات وأرتّب خطة البداية",
+];
+
 function DiscoveryPage() {
   const { data: workspace } = useWorkspace();
   const run = useServerFn(discoverBrand);
-  const [url, setUrl] = useState(
-    ((workspace as { website?: string | null } | undefined)?.website ?? "") as string,
-  );
+  const savedSite = ((workspace as { website?: string | null } | undefined)?.website ?? "") as string;
+
+  const nour = getMember("nour");
+  const [step, setStep] = useState<Step>("url");
+  const [url, setUrl] = useState(savedSite);
+  const [goal, setGoal] = useState<string | null>(null);
+  const [rivals, setRivals] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
   const [report, setReport] = useState<DiscoveryReport | null>(null);
+  const [scanStep, setScanStep] = useState(0);
+  const [turns, setTurns] = useState<Turn[]>([
+    {
+      from: "nour",
+      text: savedSite
+        ? `أهلاً 👋 أنا نور. هأعمل لك كشفاً كاملاً لعلامتك من رابط واحد. موقعك هو ${savedSite}؟ اكتب «نعم» أو ابعث رابطاً آخر.`
+        : "أهلاً 👋 أنا نور. ابعث لي رابط موقعك وهأفحص كل شيء: صحة الموقع، ما يبحث عنه جمهورك، منافسوك، وأين تبدأ.",
+    },
+  ]);
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [turns, step, report]);
+
+  const say = (from: Turn["from"], text: string) => setTurns((t) => [...t, { from, text }]);
 
   const scan = useMutation({
-    mutationFn: () => run({ data: { workspaceId: workspace!.id, url } }),
-    onSuccess: setReport,
+    mutationFn: (input: { url: string; goal?: string; competitors?: string[] }) =>
+      run({ data: { workspaceId: workspace!.id, ...input } }),
+    onSuccess: (r) => {
+      setReport(r);
+      setStep("done");
+      say(
+        "nour",
+        `خلصت ✅ جاهزية علامتك ${r.readiness}/100. ${
+          r.actions.length ? `أهم خطوة الآن: ${r.actions[0]!.title}.` : "التقرير الكامل تحت."
+        } التفاصيل كلها ظاهرة أسفل المحادثة — اضغط أي بند لأبدأ تنفيذه فوراً.`,
+      );
+    },
+    onError: (e) => {
+      setStep("url");
+      say("nour", `تعذّر إكمال الفحص: ${e instanceof Error ? e.message : "خطأ غير متوقع"}. جرّب رابطاً آخر.`);
+    },
   });
+
+  const start = (finalUrl: string, finalGoal: string | null, finalRivals: string[]) => {
+    setStep("running");
+    setScanStep(0);
+    say("nour", "تمام، بدأت الفحص الآن — دقيقة تقريباً.");
+    scan.mutate({
+      url: finalUrl,
+      ...(finalGoal ? { goal: finalGoal } : {}),
+      ...(finalRivals.length ? { competitors: finalRivals } : {}),
+    });
+  };
+
+  useEffect(() => {
+    if (step !== "running") return;
+    const id = setInterval(() => setScanStep((s) => Math.min(s + 1, SCAN_STEPS.length - 1)), 9000);
+    return () => clearInterval(id);
+  }, [step]);
+
+  const handle = (raw: string) => {
+    const value = raw.trim();
+    if (!value) return;
+    say("me", value);
+    setDraft("");
+
+    if (step === "url") {
+      const chosen = /^(نعم|أيوه|ايوه|تمام|yes|اه|آه)$/i.test(value) ? savedSite : value;
+      if (chosen.trim().length < 4) {
+        say("nour", "محتاج رابط موقع صحيح مثل example.com حتى أبدأ.");
+        return;
+      }
+      setUrl(chosen);
+      setStep("goal");
+      say("nour", `تمام: ${chosen}. إيه أهم هدف لك الفترة الجاية؟`);
+      return;
+    }
+
+    if (step === "goal") {
+      setGoal(value);
+      setStep("rivals");
+      say("nour", "آخر سؤال: مين أقرب منافس لك؟ ابعث نطاقه (أو أكثر من واحد)، وإن مش عارف اكتب «تخطَّ» وهأستنتجهم بنفسي.");
+      return;
+    }
+
+    if (step === "rivals") {
+      const list = /تخط|تخطى|مش عارف|لا/i.test(value)
+        ? []
+        : value
+            .split(/[,،\s]+/)
+            .map((d) => d.trim())
+            .filter((d) => d.includes("."))
+            .slice(0, 3);
+      setRivals(list);
+      start(url, goal, list);
+    }
+  };
+
+  const chips =
+    step === "url" && savedSite
+      ? ["نعم", "رابط آخر"]
+      : step === "goal"
+        ? GOALS
+        : step === "rivals"
+          ? ["تخطَّ"]
+          : [];
 
   return (
     <AppShell
       title="كشف العلامة والموقع"
-      lead="رابط واحد، وتقرير كامل: صحة موقعك، ما يبحث عنه جمهورك، ماذا يفعل منافسوك، وأين يجب أن تبدأ."
+      lead="حوار قصير مع نور، وتقرير كامل: صحة موقعك، ما يبحث عنه جمهورك، ماذا يفعل منافسوك، وأين تبدأ."
     >
-      <section className="rounded-3xl border border-border bg-card p-6">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (workspace && url.trim().length > 3 && !scan.isPending) scan.mutate();
-          }}
-          className="flex flex-col gap-2 sm:flex-row"
-        >
-          <input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            dir="ltr"
-            inputMode="url"
-            placeholder="https://your-site.com"
-            className={cn(field, "flex-1 text-start")}
-          />
+      <section className="rounded-3xl border border-border bg-card p-4 sm:p-6">
+        <div className="space-y-3">
+          {turns.map((t, i) => (
+            <div key={i} className={cn("flex gap-2.5", t.from === "me" && "flex-row-reverse")}>
+              {t.from === "nour" && nour ? (
+                <Portrait member={nour} className="size-9 shrink-0 rounded-full object-cover" />
+              ) : null}
+              <p
+                className={cn(
+                  "max-w-[85%] min-w-0 rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words",
+                  t.from === "nour" ? "bg-secondary/70" : "bg-foreground text-background",
+                )}
+              >
+                {t.text}
+              </p>
+            </div>
+          ))}
+
+          {step === "running" ? (
+            <ul className="rounded-2xl border border-border/70 p-4 text-sm">
+              {SCAN_STEPS.map((s, i) => (
+                <li key={s} className="flex items-center gap-2 py-1">
+                  {i < scanStep ? (
+                    <CheckCircle2 className="size-4 shrink-0 text-jade-deep" />
+                  ) : i === scanStep ? (
+                    <Loader2 className="size-4 shrink-0 animate-spin text-jade-deep" />
+                  ) : (
+                    <span className="size-4 shrink-0 rounded-full border border-border" />
+                  )}
+                  <span className={cn("min-w-0", i > scanStep && "text-muted-foreground")}>{s}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div ref={endRef} />
+        </div>
+
+        {step !== "running" && step !== "done" ? (
+          <>
+            {chips.length ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {chips.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => (c === "رابط آخر" ? setDraft("") : handle(c))}
+                    className="rounded-full border border-border px-3.5 py-1.5 text-xs font-bold transition-colors hover:bg-secondary/70"
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (workspace) handle(draft);
+              }}
+              className="mt-3 flex gap-2"
+            >
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                dir={step === "url" ? "ltr" : "rtl"}
+                placeholder={
+                  step === "url" ? "https://your-site.com" : step === "goal" ? "اكتب هدفك…" : "نطاق منافسك…"
+                }
+                className={cn(field, "flex-1 text-start")}
+              />
+              <button
+                type="submit"
+                disabled={!workspace || !draft.trim()}
+                className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-foreground px-5 py-3 text-sm font-bold text-background disabled:opacity-60"
+              >
+                {step === "rivals" ? <Radar className="size-4" /> : <Send className="size-4" />}
+                {step === "rivals" ? "ابدأ الكشف" : "إرسال"}
+              </button>
+            </form>
+          </>
+        ) : null}
+
+        {step === "done" ? (
           <button
-            type="submit"
-            disabled={!workspace || scan.isPending || url.trim().length < 4}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-foreground px-5 py-3 text-sm font-bold text-background disabled:opacity-60"
+            type="button"
+            onClick={() => {
+              setReport(null);
+              setStep("url");
+              setDraft("");
+              setTurns([{ from: "nour", text: "تمام، ابعث رابط الموقع اللي عايز أكشفه دلوقتي." }]);
+            }}
+            className="mt-4 rounded-2xl border border-border px-4 py-2 text-sm font-bold transition-colors hover:bg-secondary/70"
           >
-            {scan.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Radar className="size-4" />
-            )}
-            {scan.isPending ? "نفحص كل شيء…" : "افحص علامتي"}
+            كشف موقع آخر
           </button>
-        </form>
-        <p className="mt-2 text-xs text-muted-foreground">
-          نقرأ صفحات موقعك، نفحص السيو والسرعة، نقيس طلب الكلمات في البحث فعلياً، نجرد محتوى
-          المنافسين، ونبحث عن حساباتك — قد يستغرق دقيقة.
-        </p>
-        {scan.error ? (
-          <p className="mt-3 rounded-2xl bg-coral/12 px-4 py-3 text-sm font-semibold text-coral">
-            {scan.error instanceof Error ? scan.error.message : "تعذّر إكمال الفحص"}
-          </p>
         ) : null}
       </section>
 
@@ -99,6 +270,7 @@ function DiscoveryPage() {
     </AppShell>
   );
 }
+
 
 function ReportView({ report }: { report: DiscoveryReport }) {
   const { profile, audit, opportunities, competitors, presence, actions } = report;
