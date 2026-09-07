@@ -102,8 +102,9 @@ function ApprovalsPage() {
 
                 <h2 className="mt-4 font-display text-lg font-black break-words">{a.title}</h2>
                 <p className="mt-3 max-h-96 overflow-y-auto overflow-x-hidden rounded-2xl bg-secondary/50 p-4 leading-relaxed break-words whitespace-pre-wrap text-ink-soft">
-                  {a.output ?? a.detail}
+                  {sanitizePostBody(a.output ?? a.detail) || a.detail}
                 </p>
+
 
 
                 {workspace?.id ? (
