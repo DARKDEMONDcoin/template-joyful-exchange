@@ -51,22 +51,24 @@ function SettingsPage() {
   return (
     <AppShell title="الإعدادات" lead="كل ما يخص مساحة عملك وحسابك.">
       <div className="grid gap-6 lg:grid-cols-[14rem_1fr]">
-        <nav className="flex gap-2 overflow-x-auto lg:flex-col">
+        <nav className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-col">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={cn(
-                "inline-flex shrink-0 items-center gap-2.5 rounded-2xl px-4 py-2.5 text-sm font-bold transition-colors",
-                tab === t.id ? "bg-foreground text-background" : "hover:bg-secondary",
+                "inline-flex min-w-0 items-center gap-2 rounded-2xl px-3.5 py-2.5 text-sm font-bold transition-colors",
+                tab === t.id ? "bg-foreground text-background" : "border border-border hover:bg-secondary",
               )}
             >
-              <t.icon className="size-4" /> {t.label}
+              <t.icon className="size-4 shrink-0" />
+              <span className="truncate">{t.label}</span>
             </button>
           ))}
         </nav>
 
-        <div className="rounded-3xl border border-border bg-card p-6 md:p-8">
+        <div className="min-w-0 rounded-3xl border border-border bg-card p-5 sm:p-6 md:p-8">
+
           {saved ? (
             <p className="mb-5 rounded-2xl bg-jade/12 px-4 py-3 text-sm font-semibold text-jade-deep">
               {saved}
