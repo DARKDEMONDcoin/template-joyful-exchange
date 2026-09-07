@@ -1,5 +1,5 @@
-import { metaConfig, metaRedirectUri, META_SCOPES } from "@/lib/meta.server";
-const c = await metaConfig();
-console.log("config:", c ? { appId: c.appId.slice(0,6)+"…" } : null);
-console.log("redirect:", metaRedirectUri());
-console.log("scopes:", META_SCOPES.join(","));
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+const { data: conns } = await supabaseAdmin.from("meta_connections").select("workspace_id,kind,page_id,page_name,status,last_error,token_expires_at");
+console.log("connections:", conns);
+const { data: posts } = await supabaseAdmin.from("social_posts").select("provider,status,last_error,published_at,created_at").order("created_at",{ascending:false}).limit(8);
+console.log("recent posts:", posts);
