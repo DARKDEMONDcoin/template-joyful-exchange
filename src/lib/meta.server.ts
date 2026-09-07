@@ -117,7 +117,7 @@ export async function verifyState(
  * بينما لوحة ميتا تقبل روابط مسجّلة فقط. نستخدم النطاق الثابت للمشروع دائماً.
  */
 export const META_CANONICAL_ORIGIN =
-  "https://id-preview--0ce5e558-cbb1-4a64-8022-50705199c70c.lovable.app";
+  "https://project--541025ee-163e-49a6-8c43-600f36bcb147.lovable.app";
 
 export function metaRedirectUri(_origin?: string): string {
   const override = process.env["META_REDIRECT_ORIGIN"];
