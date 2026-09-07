@@ -131,12 +131,20 @@ export function LegalDoc({
 
       <div className="mx-auto grid max-w-6xl gap-10 px-5 py-14 lg:grid-cols-[270px_1fr]">
         <aside className="lg:sticky lg:top-28 lg:self-start print:hidden">
-          <div className="rounded-3xl border border-border bg-card p-5 shadow-card">
-            <div className="flex items-center gap-2 text-sm font-bold text-muted-foreground">
-              <FileText className="size-4 text-primary" />
-              المحتويات
-            </div>
-            <ol className="mt-3 max-h-[52vh] space-y-1 overflow-y-auto text-sm lg:max-h-[58vh]">
+          <details
+            open
+            className="group rounded-3xl border border-border bg-card p-5 shadow-card [&:not([open])>summary]:mb-0 lg:[&>summary]:pointer-events-none"
+          >
+            <summary className="mb-3 flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-bold text-muted-foreground [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2">
+                <FileText className="size-4 text-primary" />
+                المحتويات
+              </span>
+              <span className="text-xs font-medium lg:hidden">
+                {sections.length} أقسام
+              </span>
+            </summary>
+            <ol className="max-h-[52vh] space-y-1 overflow-y-auto text-sm lg:max-h-[58vh]">
               {sections.map((s, i) => (
                 <li key={s.id}>
                   <a
