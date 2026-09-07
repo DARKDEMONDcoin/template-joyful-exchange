@@ -164,15 +164,47 @@ function SettingsPage() {
                   <option>فصحى معاصرة</option>
                 </select>
               </label>
-              <button
-                type="submit"
-                disabled={updateProfile.isPending}
-                className="rounded-full bg-foreground px-6 py-2.5 text-sm font-bold text-background disabled:opacity-60"
-              >
-                {updateProfile.isPending ? "جارٍ الحفظ…" : "حفظ"}
-              </button>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold">زيّ الفريق في الصور (اختياري)</span>
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  className={field}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1.5 block text-xs text-muted-foreground">
+                  يظهر الموظفون بالأسماء نفسها وبلبس الدولة التي تختارها — والاختيار التلقائي حسب بلدك.
+                </span>
+              </label>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={updateProfile.isPending}
+                  className="rounded-full bg-foreground px-6 py-2.5 text-sm font-bold text-background disabled:opacity-60"
+                >
+                  {updateProfile.isPending ? "جارٍ الحفظ…" : "حفظ"}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    window.location.href = "/";
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-bold text-coral transition-colors hover:bg-coral/10"
+                >
+                  <LogOut className="size-4" /> تسجيل الخروج
+                </button>
+              </div>
             </form>
           ) : null}
+
 
           {tab === "ai" ? <SecretsPanel /> : null}
 
