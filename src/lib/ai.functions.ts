@@ -672,8 +672,14 @@ export const askEmployee = createServerFn({ method: "POST" })
         : `${reply.trim()}\n\n📋 جهّزت **${deliverables.length} مخرجات** جاهزة، كل واحد بنصه الكامل — راجعها واعتمدها من [المخرجات والمهام](/app/tasks).`;
     }
 
-    // صور من موقع المستخدم نفسه: نقترح الأنسب لطلبه ليستخدمها بدل صورة مولّدة.
+    // صور من موقع المستخدم: اختيارية تماماً — تظهر فقط حين يطلبها في رسالته.
+    const wantsSiteImages =
+      /(صور|صورة|صور\s*من)\s*(من\s*)?(موقعي|الموقع|موقعنا)|صور\s+موقع|من\s+صور\s+موقعي|استخدم\s+صور\s+موقع/u.test(
+        data.message ?? "",
+      );
     let siteSuggestions: { url: string; alt: string; pageUrl: string }[] = [];
+    if (wantsSiteImages)
+
     try {
       const { data: stored } = await supabase
         .from("site_assets")
