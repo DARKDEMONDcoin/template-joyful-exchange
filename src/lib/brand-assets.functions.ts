@@ -35,7 +35,7 @@ export const syncSiteAssets = createServerFn({ method: "POST" })
     const site = normalizeUrl(target);
     if (!site) return { ok: false as const, reason: "bad-url" as const, count: 0 };
 
-    const found = await harvestSiteImages(site);
+    const found = await harvestSiteImages(site, 12);
     if (found.length) {
       await supabase.from("site_assets").upsert(
         found.map((a) => ({
