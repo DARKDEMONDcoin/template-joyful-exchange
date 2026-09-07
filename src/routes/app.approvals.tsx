@@ -79,12 +79,12 @@ function ApprovalsPage() {
           {pending.map((a) => {
             const member = getMember(a.employee_id);
             return (
-              <article key={a.id} className="rounded-3xl border border-border bg-card p-6">
+              <article key={a.id} className="min-w-0 rounded-3xl border border-border bg-card p-5 sm:p-6">
                 <div className="flex flex-wrap items-center gap-2.5 text-xs">
                   {member ? (
                     <span className="inline-flex items-center gap-1.5 font-bold">
                       <span
-                        className="grid size-7 place-items-center rounded-lg"
+                        className="grid size-7 shrink-0 place-items-center rounded-lg"
                         style={{ background: member.tintSoft, color: member.tint }}
                       >
                         <member.icon className="size-3.5" strokeWidth={2.4} />
@@ -93,17 +93,18 @@ function ApprovalsPage() {
                     </span>
                   ) : null}
                   <span className="inline-flex items-center gap-1 text-muted-foreground">
-                    <AppIcon name={a.channel} className="size-3.5" />
+                    <AppIcon name={a.channel} className="size-3.5 shrink-0" />
                     {appLabel(a.channel)}
                   </span>
                   <span className="rounded-full bg-secondary px-2.5 py-0.5 font-bold">{a.kind}</span>
                   <span className="ms-auto text-muted-foreground">{a.scheduled ?? ""}</span>
                 </div>
 
-                <h2 className="mt-4 font-display text-lg font-black">{a.title}</h2>
-                <p className="mt-3 rounded-2xl bg-secondary/50 p-4 leading-relaxed whitespace-pre-wrap text-ink-soft">
+                <h2 className="mt-4 font-display text-lg font-black break-words">{a.title}</h2>
+                <p className="mt-3 max-h-96 overflow-y-auto overflow-x-hidden rounded-2xl bg-secondary/50 p-4 leading-relaxed break-words whitespace-pre-wrap text-ink-soft">
                   {a.output ?? a.detail}
                 </p>
+
 
                 {workspace?.id ? (
                   <PublishPanel
