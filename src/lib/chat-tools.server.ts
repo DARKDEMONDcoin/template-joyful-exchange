@@ -88,6 +88,26 @@ function topicSeed(text: string): string | null {
 }
 
 
+const WEEKDAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+/** إزاحة منطقة زمنية بالدقائق مقارنةً بـUTC الآن. */
+function tzOffsetMinutes(timeZone: string): number {
+  try {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour12: false,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    }).formatToParts(now);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+    const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    return Math.round((asUtc - now.getTime()) / 60_000);
+  } catch {
+    return 180;
+  }
+}
+
 export async function runChatTools(
   admin: Admin,
   params: {
@@ -373,6 +393,47 @@ export async function runChatTools(
       );
     }
 
+    // زيارات الموقع الحقيقية من Google Analytics 4 (مربوط باسم analytics).
+    const wantsTraffic =
+      bigAsk ||
+      /زيارات|زوار|ترافيك|traffic|جمهور|مصادر (الزيارات|الترافيك)|جلسات|analytics|تحليلات/i.test(text);
+    if (wantsTraffic) {
+      jobs.push(
+        (async () => {
+          try {
+            const { ga4SnapshotDetailed } = await import("./ga4.functions");
+            const g = await ga4SnapshotDetailed(params.workspaceId, 28);
+            if (!g.snapshot) {
+              if (!params.connected.includes("analytics")) return null;
+              return {
+                tool: "ga4",
+                block: `Google Analytics: ${g.status.message} — أخبر المستخدم بذلك بجملة واحدة وأكمل التحليل بما هو متاح.`,
+                footer: "",
+              };
+            }
+            const s = g.snapshot;
+            return {
+              tool: "ga4",
+              block: [
+                `### زيارات حقيقية من Google Analytics 4 (${s.range.start} → ${s.range.end})`,
+                `الجلسات: ${s.totals.sessions} · المستخدمون: ${s.totals.users} · الجلسات المتفاعلة: ${s.totals.engagedSessions}`,
+                s.channels.length ? `مصادر الزيارات: ${s.channels.map((c) => `${c.channel} (${c.sessions})`).join(" | ")}` : "",
+                s.organicLandingPages.length
+                  ? `أفضل صفحات الدخول من البحث: ${s.organicLandingPages.slice(0, 8).map((p) => `${p.page} (${p.sessions})`).join(" | ")}`
+                  : "",
+                "اربط هذه الأرقام بتوصياتك: أي قناة تنمو، وأي صفحة تستحق التقوية. لا تخترع أرقاماً أخرى.",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              footer: "لوحة الزيارات الكاملة في «التقارير».",
+            };
+          } catch {
+            return null;
+          }
+        })(),
+      );
+    }
+
     // كل أدوات نور تعمل بالتوازي داخل سقف زمني واحد — لا تُلغى أداة لأن سابقتها تأخّرت.
     const settled = await Promise.race([
       Promise.all(jobs),
@@ -380,6 +441,7 @@ export async function runChatTools(
     ]);
     for (const r of settled) if (r) out.push(r);
   }
+
 
 
 
@@ -468,7 +530,70 @@ export async function runChatTools(
         /* لا شيء */
       }
     }
+
+    // أفضل وقت نشر محسوب من جمهور الحساب المربوط أو من سجل النشر.
+    const wantsBestTime = /أفضل (وقت|توقيت|ميعاد)|امتى أنشر|إمتى أنشر|متى أنشر|best time/i.test(text);
+    if (wantsBestTime && left() > 10_000) {
+      try {
+        const { computeBestTimes } = await import("./best-time.server");
+        const { data: ws } = await admin
+          .from("workspaces")
+          .select("timezone")
+          .eq("id", params.workspaceId)
+          .maybeSingle();
+        const tz = (ws as { timezone?: string } | null)?.timezone ?? "Africa/Cairo";
+        const offsetMin = tzOffsetMinutes(tz);
+        const prov =
+          params.targets[0] ??
+          params.connected.find((p) => ["instagram", "facebook", "linkedin", "x"].includes(p)) ??
+          "instagram";
+        const r = await computeBestTimes(admin, params.workspaceId, prov, offsetMin);
+        out.push({
+          tool: "best-time",
+          block: [
+            `### أفضل مواعيد نشر حقيقية على ${prov} (المصدر: ${r.source === "audience" ? "ساعات تواجد متابعيك فعلياً" : r.source === "history" ? "سجل نشرك وتفاعله" : "قاعدة عامة — لا بيانات كافية بعد"} · ${r.samples} عينة)`,
+            ...r.slots.map(
+              (s) => `- ${WEEKDAYS[s.weekday] ?? ""} الساعة ${String(s.hour).padStart(2, "0")}:00 بتوقيت ${tz}`,
+            ),
+            r.note ?? "",
+            "اقترح جدولة المنشور القادم في أول موعد منها بضغطة من «التقويم».",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          footer: "يمكن جدولة المنشور على هذه المواعيد من «التقويم».",
+        });
+      } catch {
+        /* لا شيء */
+      }
+    }
   }
+
+  // ---------- حالة التكاملات (للموظفين معاً) ----------
+  if (/تكامل|التكاملات|مربوط|الربط|اربط|حساباتي|أي منصات|integrations?/i.test(text)) {
+    const { employeeDirectory } = await import("./team-knowledge");
+    const { providerLabel } = await import("./platforms");
+    const mine =
+      employeeDirectory[params.employeeId as keyof typeof employeeDirectory]?.integrations.map((i) => i.provider) ?? [];
+    const on = mine.filter((p) => params.connected.includes(p));
+    const off = mine.filter((p) => !params.connected.includes(p));
+    const others = params.connected.filter((p) => !mine.includes(p));
+    out.push({
+      tool: "integrations-status",
+      block: [
+        "### حالة تكاملاتك الحقيقية الآن",
+        on.length ? `مربوط ويعمل ضمن اختصاصك: ${on.map(providerLabel).join("، ")}` : "لا توجد منصة مربوطة بعد ضمن اختصاصك.",
+        off.length ? `غير مربوط: ${off.map(providerLabel).join("، ")}` : "",
+      others.length
+        ? `مربوط في مساحة العمل لدى زملائك (يمكنك الإحالة إليه لا ادّعاء استخدامه): ${others.map(providerLabel).join("، ")}`
+        : "",
+        "اذكر المربوط فقط كقدرات جاهزة الآن، واعرض ربط الناقص بضغطة من «التكاملات» دون إلحاح.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      footer: "إدارة الربط من صفحة «التكاملات».",
+    });
+  }
+
 
   return out;
 }
