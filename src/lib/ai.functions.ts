@@ -678,9 +678,7 @@ export const askEmployee = createServerFn({ method: "POST" })
         data.message ?? "",
       );
     let siteSuggestions: { url: string; alt: string; pageUrl: string }[] = [];
-    if (wantsSiteImages)
-
-    try {
+    if (wantsSiteImages) try {
       const { data: stored } = await supabase
         .from("site_assets")
         .select("url, alt, page_url, weight")
