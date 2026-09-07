@@ -164,6 +164,7 @@
 
   html {
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
@@ -172,7 +173,32 @@
     font-family: var(--font-sans);
     line-height: 1.7;
     -webkit-font-smoothing: antialiased;
+    /* لا تمدّد أفقي على أي شاشة مهما طال المحتوى. */
+    overflow-x: hidden;
   }
+
+  /* الصور والوسائط لا تتجاوز حاويتها أبداً. */
+  img,
+  svg,
+  video,
+  canvas,
+  iframe,
+  table {
+    max-width: 100%;
+  }
+
+  /* النصوص الطويلة بلا مسافات (روابط/أكواد) تُكسر بدل أن تمدّ الصفحة. */
+  p,
+  li,
+  h1,
+  h2,
+  h3,
+  h4,
+  td,
+  th {
+    overflow-wrap: anywhere;
+  }
+
 
   ::selection {
     background: oklch(0.7 0.125 79 / 0.4);
