@@ -18,7 +18,7 @@ export type ImproveInput = {
   industry?: string | undefined;
   city?: string | undefined;
   /** عدد النسخ البديلة المطلوبة (١–٣). */
-  variants?: number;
+  variants?: number | undefined;
 };
 
 export type ImproveVariant = {
