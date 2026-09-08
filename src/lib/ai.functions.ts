@@ -149,7 +149,10 @@ const input = z.object({
   imageMode: z.enum(["auto", "off", "manual"]).optional(),
   imagePrompt: z.string().max(900).optional(),
   imageAspect: z.enum(["square", "portrait", "landscape", "story"]).optional(),
+  /** طول المنشور المطلوب (اختياري) — «تلقائي» يترك القرار للموظف حسب المنصة. */
+  postLength: z.enum(["auto", "short", "medium", "long"]).optional(),
 });
+
 
 
 /** الموظفون الذين تُولَّد لهم صورة فعلية عند وجود وصف بصري في الرد. */
