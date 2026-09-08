@@ -1,6 +1,7 @@
 /**
- * قناة واتساب للأعمال (WhatsApp Cloud API) — إرسال الرسائل وقراءة بيانات الربط.
- * بيانات الربط تُحفظ في integration_credentials تحت المزوّد "whatsapp".
+ * قناة واتساب للأعمال — الإرسال عبر وكيل Pipedream (لا نحتفظ بأي توكن)،
+ * مع دعم رجعي لتوكن مباشر إن كان محفوظاً من ربط قديم.
+ * بيانات القناة تُحفظ في integration_credentials تحت المزوّد "whatsapp".
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -8,16 +9,37 @@ import type { Database } from "@/integrations/supabase/types";
 
 type Admin = SupabaseClient<Database>;
 
+const GRAPH = "https://graph.facebook.com/v23.0";
+
 export type WhatsappCreds = {
+  /** مساحة العمل صاحبة القناة (لازمة لنداءات الوسيط). */
+  workspaceId: string;
   /** معرّف رقم الإرسال في واتساب للأعمال (Phone Number ID). */
   phoneNumberId: string;
-  /** توكن دائم لتطبيق ميتا يملك صلاحية whatsapp_business_messaging. */
-  token: string;
+  /** معرّف الحساب المربوط لدى Pipedream (apn_...) — الوضع المفضّل. */
+  accountId?: string;
+  /** توكن ميتا الدائم — فقط للربط اليدوي القديم. */
+  token?: string;
   /** رقم العرض — للعرض فقط في الواجهة. */
   displayNumber?: string;
   /** الكلمة السرية التي تُدخل في إعداد الويبهوك داخل لوحة ميتا. */
   verifyToken?: string;
 };
+
+type StoredConfig = Partial<Omit<WhatsappCreds, "workspaceId">>;
+
+function toCreds(workspaceId: string, config: StoredConfig | undefined): WhatsappCreds | null {
+  if (!config?.phoneNumberId) return null;
+  if (!config.accountId && !config.token) return null;
+  return {
+    workspaceId,
+    phoneNumberId: config.phoneNumberId,
+    ...(config.accountId ? { accountId: config.accountId } : {}),
+    ...(config.token ? { token: config.token } : {}),
+    ...(config.displayNumber ? { displayNumber: config.displayNumber } : {}),
+    ...(config.verifyToken ? { verifyToken: config.verifyToken } : {}),
+  };
+}
 
 /** يتحقق من كلمة التحقق المرسلة من ميتا عند تفعيل الويبهوك. */
 export async function verifyTokenMatches(admin: Admin, token: string): Promise<boolean> {
@@ -26,11 +48,8 @@ export async function verifyTokenMatches(admin: Admin, token: string): Promise<b
     .from("integration_credentials")
     .select("config")
     .eq("provider", "whatsapp");
-  return (data ?? []).some(
-    (row) => (row.config as Partial<WhatsappCreds>)?.verifyToken === token,
-  );
+  return (data ?? []).some((row) => (row.config as StoredConfig)?.verifyToken === token);
 }
-
 
 /** يقرأ بيانات واتساب لمساحة عمل بعينها. */
 export async function whatsappCreds(
@@ -43,13 +62,7 @@ export async function whatsappCreds(
     .eq("workspace_id", workspaceId)
     .eq("provider", "whatsapp")
     .maybeSingle();
-  const config = data?.config as Partial<WhatsappCreds> | undefined;
-  if (!config?.phoneNumberId || !config.token) return null;
-  return {
-    phoneNumberId: config.phoneNumberId,
-    token: config.token,
-    ...(config.displayNumber ? { displayNumber: config.displayNumber } : {}),
-  };
+  return toCreds(workspaceId, data?.config as StoredConfig | undefined);
 }
 
 /** يعثر على مساحة العمل صاحبة رقم الإرسال الذي وصلت إليه الرسالة. */
@@ -62,62 +75,97 @@ export async function workspaceByPhoneNumberId(
     .select("workspace_id, config")
     .eq("provider", "whatsapp");
   for (const row of data ?? []) {
-    const config = row.config as Partial<WhatsappCreds>;
-    if (config?.phoneNumberId === phoneNumberId && config.token) {
-      return {
-        workspaceId: row.workspace_id,
-        creds: {
-          phoneNumberId: config.phoneNumberId,
-          token: config.token,
-          ...(config.displayNumber ? { displayNumber: config.displayNumber } : {}),
-        },
-      };
-    }
+    const config = row.config as StoredConfig;
+    if (config?.phoneNumberId !== phoneNumberId) continue;
+    const creds = toCreds(row.workspace_id, config);
+    if (creds) return { workspaceId: row.workspace_id, creds };
   }
   return null;
 }
 
-/** يرسل رسالة نصية عبر واتساب Cloud API (داخل نافذة ٢٤ ساعة من رسالة العميل). */
+/** نداء Graph API: عبر وكيل Pipedream إن كان الربط عبره، وإلا بالتوكن المباشر. */
+async function graph<T>(
+  creds: WhatsappCreds,
+  path: string,
+  init?: { method?: "GET" | "POST"; body?: unknown },
+): Promise<T> {
+  if (creds.accountId) {
+    const { pipedreamConfig, proxyRequest, missingConfigError } = await import("./pipedream.server");
+    const config = await pipedreamConfig();
+    if (!config) throw missingConfigError();
+    return proxyRequest<T>(config, {
+      workspaceId: creds.workspaceId,
+      accountId: creds.accountId,
+      url: `${GRAPH}${path}`,
+      method: init?.method ?? "GET",
+      ...(init?.body === undefined ? {} : { body: init.body }),
+    });
+  }
+
+  if (!creds.token) throw new Error("قناة واتساب غير مربوطة.");
+  const res = await fetch(`${GRAPH}${path}`, {
+    method: init?.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${creds.token}`,
+      "Content-Type": "application/json",
+    },
+    ...(init?.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`WhatsApp API failed [${res.status}]: ${text.slice(0, 400)}`);
+  return (text ? JSON.parse(text) : {}) as T;
+}
+
+/** يرسل رسالة نصية عبر واتساب (داخل نافذة ٢٤ ساعة من رسالة العميل). */
 export async function sendWhatsapp(
   creds: WhatsappCreds,
   to: string,
   text: string,
 ): Promise<void> {
-  const res = await fetch(`https://graph.facebook.com/v23.0/${creds.phoneNumberId}/messages`, {
+  await graph(creds, `/${creds.phoneNumberId}/messages`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+    body: {
       messaging_product: "whatsapp",
       to,
       type: "text",
       text: { preview_url: false, body: text.slice(0, 4000) },
-    }),
+    },
   });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`WhatsApp send failed [${res.status}]: ${body.slice(0, 400)}`);
-  }
 }
 
-/** يتحقق من صلاحية بيانات الربط ويعيد رقم العرض. */
-export async function verifyWhatsappCreds(
-  creds: Pick<WhatsappCreds, "phoneNumberId" | "token">,
-): Promise<{ displayNumber: string; verifiedName?: string }> {
-  const res = await fetch(
-    `https://graph.facebook.com/v23.0/${creds.phoneNumberId}?fields=display_phone_number,verified_name`,
-    { headers: { Authorization: `Bearer ${creds.token}` } },
-  );
-  const body = (await res.json()) as {
-    display_phone_number?: string;
-    verified_name?: string;
-    error?: { message?: string };
+/** أرقام الإرسال المتاحة داخل حساب واتساب للأعمال المربوط عبر Pipedream. */
+export async function listPipedreamPhones(
+  workspaceId: string,
+  accountId: string,
+): Promise<{ id: string; displayNumber: string; name?: string }[]> {
+  const { pipedreamConfig, proxyRequest, missingConfigError } = await import("./pipedream.server");
+  const config = await pipedreamConfig();
+  if (!config) throw missingConfigError();
+
+  type Phones = {
+    data?: { id: string; display_phone_number?: string; verified_name?: string }[];
   };
-  if (!res.ok) {
-    throw new Error(body.error?.message ?? `تعذّر التحقق من رقم واتساب [${res.status}].`);
-  }
+  // معرّف حساب الأعمال محفوظ لدى الوسيط نفسه — نستدعيه بماكرو بدل تخزينه عندنا.
+  const res = await proxyRequest<Phones>(config, {
+    workspaceId,
+    accountId,
+    url: `${GRAPH}/{{custom_fields.business_account_id}}/phone_numbers?limit=25`,
+  });
+  return (res.data ?? []).map((p) => ({
+    id: p.id,
+    displayNumber: p.display_phone_number ?? "",
+    ...(p.verified_name ? { name: p.verified_name } : {}),
+  }));
+}
+
+/** يتحقق من صلاحية رقم الإرسال ويعيد بياناته. */
+export async function verifyWhatsappCreds(
+  creds: Omit<WhatsappCreds, "displayNumber" | "verifyToken">,
+): Promise<{ displayNumber: string; verifiedName?: string }> {
+  const body = await graph<{ display_phone_number?: string; verified_name?: string }>(
+    creds,
+    `/${creds.phoneNumberId}?fields=display_phone_number,verified_name`,
+  );
   return {
     displayNumber: body.display_phone_number ?? "",
     ...(body.verified_name ? { verifiedName: body.verified_name } : {}),
