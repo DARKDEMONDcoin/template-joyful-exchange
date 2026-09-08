@@ -29,9 +29,7 @@ export function nowBlock(timeZone = "Africa/Cairo"): string {
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   const iso = `${get("year")}-${get("month")}-${get("day")}`;
   const clock = `${get("hour")}:${get("minute")}`;
-  const weekday = WEEK[Number(new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" })
-    .formatToParts(now)
-    .find(() => true) ? new Date(`${iso}T12:00:00Z`).getUTCDay() : now.getUTCDay())] ?? "";
+  const weekday = WEEK[new Date(`${iso}T12:00:00Z`).getUTCDay()] ?? "";
   const hijri = fmt(now, timeZone, { day: "numeric", month: "long", year: "numeric" }, "ar-SA-u-ca-islamic");
   const long = fmt(now, timeZone, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
