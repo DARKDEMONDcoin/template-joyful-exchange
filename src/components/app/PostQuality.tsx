@@ -91,7 +91,52 @@ export function PostQuality({ text, providers, hasMedia, bannedWords = [] }: Pro
             </div>
           ))}
         </div>
-      ) : (
+      ) : null}
+
+      {onApply ? (
+        <div className="mt-3 border-t border-border/70 pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={improve}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-bold hover:bg-secondary disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
+              {busy ? "أعيد الكتابة بأعلى جودة…" : "ارفع الجودة تلقائياً"}
+            </button>
+            <span className="text-[11px] text-muted-foreground">
+              نسختان بديلتان بنفس المعنى، بلا أي معلومة جديدة — تختار أنت.
+            </span>
+          </div>
+          {error ? <p className="mt-2 text-[11px] font-bold text-coral">{error}</p> : null}
+          {variants.length ? (
+            <div className="mt-3 space-y-2">
+              {variants.map((v, i) => (
+                <div key={i} className="rounded-xl border border-border bg-card/70 p-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold">
+                      نسخة {i + 1} · {v.score}/100 · {v.grade}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onApply(v.text)}
+                      className="rounded-full bg-foreground px-3 py-1 text-[11px] font-bold text-background"
+                    >
+                      استخدم هذه
+                    </button>
+                  </div>
+                  <p className="mt-1.5 max-h-40 overflow-auto whitespace-pre-line text-[11px] leading-relaxed text-ink-soft" dir="auto">
+                    {v.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!open ? (
         <p className="mt-1.5 text-[11px] text-muted-foreground">
           {weakest.blockers.length
             ? weakest.blockers[0]!.hint
