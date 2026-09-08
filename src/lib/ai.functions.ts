@@ -374,20 +374,13 @@ export const askEmployee = createServerFn({ method: "POST" })
       })
       .join("\n");
 
-    const today = new Date();
-    const todayAr = today.toLocaleDateString("ar-EG", {
-      timeZone: "Africa/Cairo",
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-
     const system = [
       `أنت ${persona.name}، ${persona.role}`,
       `تعمل داخل منصة «سهل» لصالح العلامة: ${workspace.name} (${workspace.industry}).`,
       `نبرة العلامة: ${workspace.tone}.`,
-      `تاريخ اليوم: ${todayAr} (${today.toISOString().slice(0, 10)}).`,
+      nowBlock(timezone),
+      liveBlock,
+      intentBlock(intent),
       workspace.banned_words?.length
         ? `كلمات ممنوعة تماماً: ${workspace.banned_words.join("، ")}.`
         : "",
