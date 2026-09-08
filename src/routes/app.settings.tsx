@@ -2,10 +2,12 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Building2, Bell, User, KeyRound, LogOut } from "lucide-react";
+import { CreditCard, Building2, Bell, User, KeyRound, LogOut, MessageCircle } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
+import { WhatsAppCommand } from "@/components/app/WhatsAppCommand";
 import { COUNTRIES } from "@/data/team-portraits";
+
 import { useRegion } from "@/hooks/use-region";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -33,10 +35,12 @@ export const Route = createFileRoute("/app/settings")({
 const tabs = [
   { id: "workspace", label: "مساحة العمل", icon: Building2 },
   { id: "account", label: "حسابك", icon: User },
+  { id: "whatsapp", label: "التحكّم عبر واتساب", icon: MessageCircle },
   { id: "ai", label: "مفاتيح الذكاء", icon: KeyRound },
   { id: "billing", label: "الاشتراك", icon: CreditCard },
   { id: "notifications", label: "التنبيهات", icon: Bell },
 ] as const;
+
 
 const field =
   "w-full rounded-2xl border border-border bg-background px-4 py-3 outline-none focus:border-jade";
@@ -238,6 +242,10 @@ function SettingsPage() {
               </Link>
             </div>
           ) : null}
+
+          {tab === "whatsapp" && workspace ? <WhatsAppCommand workspaceId={workspace.id} /> : null}
+
+
 
           {tab === "notifications" ? (
             <div className="space-y-4">

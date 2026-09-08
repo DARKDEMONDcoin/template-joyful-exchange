@@ -253,6 +253,147 @@ export type Database = {
           },
         ]
       }
+      command_drafts: {
+        Row: {
+          body: string
+          channel: string
+          created_at: string
+          employee_id: string
+          external_id: string
+          id: string
+          image_url: string | null
+          last_error: string | null
+          providers: string[]
+          request: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          body?: string
+          channel?: string
+          created_at?: string
+          employee_id?: string
+          external_id: string
+          id?: string
+          image_url?: string | null
+          last_error?: string | null
+          providers?: string[]
+          request?: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          body?: string
+          channel?: string
+          created_at?: string
+          employee_id?: string
+          external_id?: string
+          id?: string
+          image_url?: string | null
+          last_error?: string | null
+          providers?: string[]
+          request?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "command_drafts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      command_link_codes: {
+        Row: {
+          channel: string
+          code: string
+          created_at: string
+          expires_at: string
+          label: string | null
+          role: string
+          used_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          channel?: string
+          code: string
+          created_at?: string
+          expires_at: string
+          label?: string | null
+          role?: string
+          used_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          channel?: string
+          code?: string
+          created_at?: string
+          expires_at?: string
+          label?: string | null
+          role?: string
+          used_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "command_link_codes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      command_links: {
+        Row: {
+          channel: string
+          created_at: string
+          external_id: string
+          id: string
+          label: string | null
+          last_seen_at: string | null
+          role: string
+          status: string
+          workspace_id: string
+        }
+        Insert: {
+          channel?: string
+          created_at?: string
+          external_id: string
+          id?: string
+          label?: string | null
+          last_seen_at?: string | null
+          role?: string
+          status?: string
+          workspace_id: string
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          external_id?: string
+          id?: string
+          label?: string | null
+          last_seen_at?: string | null
+          role?: string
+          status?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "command_links_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversations: {
         Row: {
           created_at: string
