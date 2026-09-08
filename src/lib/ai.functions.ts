@@ -301,15 +301,31 @@ export const askEmployee = createServerFn({ method: "POST" })
         data.message,
       ) || data.message.length > 220;
 
-    const research = await researchFor(
-      data.employeeId,
-      apiKey,
-      { name: workspace.name, industry: workspace.industry },
-      data.message,
-      data.workspaceId,
-      // الطلبات الكبيرة تستحق أدلة أكمل (مقاييس + نتائج بحث + موجز منافسين).
-      longForm ? 22_000 : 12_000,
-    );
+    // نيّة الرسالة: عمل (مخرج جاهز) أم سؤال/دردشة يُجاب عليها فقط بلا فرض خدمات.
+    const { chatIntent, intentBlock } = await import("./chat-intent");
+    const intent = chatIntent(data.message);
+
+    // الوعي اللحظي: الزمن الدقيق دائماً + بحث حيّ عن الأحداث الجارية عند الحاجة.
+    const { nowBlock, needsLiveFacts, liveFactsBlock } = await import("./live-context.server");
+    const timezone =
+      (workspace as { timezone?: string | null }).timezone ??
+      (ws.country === "SA" ? "Asia/Riyadh" : "Africa/Cairo");
+
+    const [research, liveBlock] = await Promise.all([
+      researchFor(
+        data.employeeId,
+        apiKey,
+        { name: workspace.name, industry: workspace.industry },
+        data.message,
+        data.workspaceId,
+        // الطلبات الكبيرة تستحق أدلة أكمل (مقاييس + نتائج بحث + موجز منافسين).
+        longForm ? 22_000 : 12_000,
+      ),
+      needsLiveFacts(data.message)
+        ? liveFactsBlock(data.message).catch(() => "")
+        : Promise.resolve(""),
+    ]);
+
 
     // المنصة التي سمّاها المستخدم بنفسه — تُحترم حرفياً ولا تُبدَّل بغيرها.
     const { requestedPublishTargets, providerLabel } = await import("./platforms");
