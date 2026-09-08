@@ -393,6 +393,12 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
           {text.length.toLocaleString("en-US")} حرف
           {active.includes("x") ? " · نسخة إكس تُقصَّر تلقائياً إلى ٢٨٠ حرفاً" : ""}
         </p>
+        <PostQuality
+          text={text}
+          providers={active}
+          hasMedia={!!media}
+          bannedWords={workspace?.banned_words ?? []}
+        />
       </div>
 
       {/* الوسائط */}
