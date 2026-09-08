@@ -15,7 +15,22 @@ export type WhatsappCreds = {
   token: string;
   /** رقم العرض — للعرض فقط في الواجهة. */
   displayNumber?: string;
+  /** الكلمة السرية التي تُدخل في إعداد الويبهوك داخل لوحة ميتا. */
+  verifyToken?: string;
 };
+
+/** يتحقق من كلمة التحقق المرسلة من ميتا عند تفعيل الويبهوك. */
+export async function verifyTokenMatches(admin: Admin, token: string): Promise<boolean> {
+  if (!token) return false;
+  const { data } = await admin
+    .from("integration_credentials")
+    .select("config")
+    .eq("provider", "whatsapp");
+  return (data ?? []).some(
+    (row) => (row.config as Partial<WhatsappCreds>)?.verifyToken === token,
+  );
+}
+
 
 /** يقرأ بيانات واتساب لمساحة عمل بعينها. */
 export async function whatsappCreds(
