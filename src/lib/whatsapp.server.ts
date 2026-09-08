@@ -24,6 +24,10 @@ export type WhatsappCreds = {
   displayNumber?: string;
   /** الكلمة السرية التي تُدخل في إعداد الويبهوك داخل لوحة ميتا. */
   verifyToken?: string;
+  /** حساب واتساب للأعمال المكتشَف تلقائياً بعد تفويض فيسبوك. */
+  wabaId?: string;
+  /** كل أرقام الإرسال المتاحة — لاختيار الرقم بلا إدخال يدوي. */
+  phones?: { id: string; displayNumber: string; name?: string; wabaId: string }[];
 };
 
 type StoredConfig = Partial<Omit<WhatsappCreds, "workspaceId">>;
