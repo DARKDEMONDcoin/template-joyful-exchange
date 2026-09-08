@@ -17,7 +17,8 @@ import {
 import { ConnectNow } from "@/components/app/ConnectNow";
 
 import { AppIcon, appLabel } from "@/components/site/AppIcon";
-import { useConnectedAccounts } from "@/lib/data";
+import { PostQuality } from "@/components/app/PostQuality";
+import { useConnectedAccounts, useWorkspace } from "@/lib/data";
 import { adaptForProvider, bestTimeFor, sanitizePostBody } from "@/lib/post-format";
 import { PUBLISHABLE, requestedPublishTargets, providerLabel } from "@/lib/platforms";
 import { publishSocialNow, scheduleSocialPost, uploadSocialMedia } from "@/lib/social-queue.functions";
@@ -74,6 +75,7 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
   const qc = useQueryClient();
   const upload = useServerFn(uploadSocialMedia);
   const { data: accounts, isLoading } = useConnectedAccounts(workspaceId);
+  const { data: workspace } = useWorkspace();
 
   const connected = useMemo(
     () =>
@@ -391,6 +393,12 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
           {text.length.toLocaleString("en-US")} حرف
           {active.includes("x") ? " · نسخة إكس تُقصَّر تلقائياً إلى ٢٨٠ حرفاً" : ""}
         </p>
+        <PostQuality
+          text={text}
+          providers={active}
+          hasMedia={!!media}
+          bannedWords={workspace?.banned_words ?? []}
+        />
       </div>
 
       {/* الوسائط */}
