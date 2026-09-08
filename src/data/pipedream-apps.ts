@@ -95,6 +95,12 @@ export const pipedreamApps: PipedreamApp[] = [
     },
   },
   {
+    provider: "whatsapp",
+    slug: "whatsapp_business",
+    label: "واتساب للأعمال",
+    note: "التحكّم بسِراج عبر واتساب: الربط يتم لدى الوسيط (معرّف حساب الأعمال + التوكن الدائم) ولا نحتفظ نحن بأي توكن.",
+  },
+  {
     provider: "gmail",
     slug: "gmail",
     label: "جيميل",
