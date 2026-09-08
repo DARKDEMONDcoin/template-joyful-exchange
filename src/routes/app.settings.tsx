@@ -243,6 +243,10 @@ function SettingsPage() {
             </div>
           ) : null}
 
+          {tab === "whatsapp" && workspace ? <WhatsAppCommand workspaceId={workspace.id} /> : null}
+
+
+
           {tab === "notifications" ? (
             <div className="space-y-4">
               <h2 className="font-display text-xl font-black">التنبيهات</h2>
