@@ -30,7 +30,7 @@ export const whatsappStatus = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => wsInput.parse(input))
   .handler(async ({ data, context }) => {
     const admin = await assertOwner(context.supabase, data.workspaceId);
-    const [{ data: cred }, { data: links }] = await Promise.all([
+    const [{ data: cred }, { data: links }, { data: account }] = await Promise.all([
       admin
         .from("integration_credentials")
         .select("config")
@@ -43,42 +43,80 @@ export const whatsappStatus = createServerFn({ method: "POST" })
         .eq("workspace_id", data.workspaceId)
         .eq("channel", "whatsapp")
         .order("created_at", { ascending: true }),
+      admin
+        .from("pipedream_accounts")
+        .select("account_id, account_name, status")
+        .eq("workspace_id", data.workspaceId)
+        .eq("provider", "whatsapp")
+        .maybeSingle(),
     ]);
     const config = (cred?.config ?? {}) as {
       phoneNumberId?: string;
       displayNumber?: string;
       verifyToken?: string;
+      accountId?: string;
     };
     return {
       connected: Boolean(config.phoneNumberId),
       phoneNumberId: config.phoneNumberId ?? "",
       displayNumber: config.displayNumber ?? "",
       verifyToken: config.verifyToken ?? "",
+      viaPipedream: Boolean(config.accountId),
+      /** حساب واتساب للأعمال المربوط لدى الوسيط (قبل اختيار رقم الإرسال). */
+      account: account?.status === "connected" ? (account.account_name ?? "واتساب") : null,
       links: links ?? [],
     };
   });
 
-/** يحفظ بيانات رقم واتساب للأعمال بعد التحقق منها لدى ميتا. */
-export const saveWhatsappChannel = createServerFn({ method: "POST" })
+/** أرقام الإرسال داخل حساب واتساب للأعمال المربوط عبر Pipedream. */
+export const whatsappPhones = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => wsInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const admin = await assertOwner(context.supabase, data.workspaceId);
+    const { data: account } = await admin
+      .from("pipedream_accounts")
+      .select("account_id")
+      .eq("workspace_id", data.workspaceId)
+      .eq("provider", "whatsapp")
+      .maybeSingle();
+    if (!account?.account_id) {
+      throw new Error("اربط واتساب للأعمال أولاً من زر الربط بالأعلى.");
+    }
+    const { listPipedreamPhones } = await import("./whatsapp.server");
+    const phones = await listPipedreamPhones(data.workspaceId, account.account_id);
+    return { phones };
+  });
+
+/** يعتمد رقم الإرسال المختار من الحساب المربوط عبر Pipedream. */
+export const selectWhatsappPhone = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z
       .object({
         workspaceId: z.string().uuid(),
         phoneNumberId: z.string().min(5).max(60),
-        token: z.string().min(20).max(500),
       })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
     const admin = await assertOwner(context.supabase, data.workspaceId);
+    const { data: account } = await admin
+      .from("pipedream_accounts")
+      .select("account_id")
+      .eq("workspace_id", data.workspaceId)
+      .eq("provider", "whatsapp")
+      .maybeSingle();
+    if (!account?.account_id) throw new Error("اربط واتساب للأعمال أولاً.");
+
     const { verifyWhatsappCreds } = await import("./whatsapp.server");
     const info = await verifyWhatsappCreds({
+      workspaceId: data.workspaceId,
+      accountId: account.account_id,
       phoneNumberId: data.phoneNumberId.trim(),
-      token: data.token.trim(),
     });
 
-    // كلمة التحقق تُولَّد مرة وتبقى ثابتة حتى لا ينكسر إعداد الويبهوك عند تحديث التوكن.
+    // كلمة التحقق تُولَّد مرة وتبقى ثابتة حتى لا ينكسر إعداد الويبهوك لاحقاً.
     const { data: existing } = await admin
       .from("integration_credentials")
       .select("config")
@@ -94,7 +132,7 @@ export const saveWhatsappChannel = createServerFn({ method: "POST" })
         provider: "whatsapp",
         config: {
           phoneNumberId: data.phoneNumberId.trim(),
-          token: data.token.trim(),
+          accountId: account.account_id,
           displayNumber: info.displayNumber,
           verifyToken,
         },

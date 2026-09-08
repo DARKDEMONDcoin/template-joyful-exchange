@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Loader2, MessageCircle, Trash2 } from "lucide-react";
+import { Check, Copy, Loader2, MessageCircle, RefreshCw, Trash2 } from "lucide-react";
 
 import {
   createLinkCode,
   removeCommandLink,
-  saveWhatsappChannel,
+  selectWhatsappPhone,
+  whatsappPhones,
   whatsappStatus,
 } from "@/lib/command-channels.functions";
+import { startPipedreamConnect, syncPipedreamAccounts } from "@/lib/pipedream.functions";
 
 const WEBHOOK_URL =
   "https://project--541025ee-163e-49a6-8c43-600f36bcb147.lovable.app/api/public/whatsapp/webhook";
@@ -42,16 +44,20 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** إعداد التحكّم بسِراج عبر واتساب: ربط رقم الأعمال ثم السماح لأرقام المالك وفريقه. */
+/** إعداد التحكّم بسِراج عبر واتساب: الربط عبر الوسيط ثم السماح لأرقام المالك وفريقه. */
 export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const status = useServerFn(whatsappStatus);
-  const save = useServerFn(saveWhatsappChannel);
+  const phones = useServerFn(whatsappPhones);
+  const selectPhone = useServerFn(selectWhatsappPhone);
   const code = useServerFn(createLinkCode);
   const remove = useServerFn(removeCommandLink);
+  const startConnect = useServerFn(startPipedreamConnect);
+  const sync = useServerFn(syncPipedreamAccounts);
 
   const [error, setError] = useState<string | null>(null);
   const [newCode, setNewCode] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["whatsapp-channel", workspaceId],
@@ -60,12 +66,27 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-channel", workspaceId] });
 
-  const saveMutation = useMutation({
-    mutationFn: (input: { phoneNumberId: string; token: string }) =>
-      save({ data: { workspaceId, ...input } }),
+  const phonesQuery = useQuery({
+    queryKey: ["whatsapp-phones", workspaceId],
+    queryFn: () => phones({ data: { workspaceId } }),
+    enabled: Boolean(data?.account),
+    retry: false,
+  });
+
+  const selectMutation = useMutation({
+    mutationFn: (phoneNumberId: string) => selectPhone({ data: { workspaceId, phoneNumberId } }),
     onSuccess: () => {
       setError(null);
       invalidate();
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => sync({ data: { workspaceId } }),
+    onSuccess: () => {
+      invalidate();
+      void qc.invalidateQueries({ queryKey: ["whatsapp-phones", workspaceId] });
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -80,6 +101,25 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
     onError: (e: Error) => setError(e.message),
   });
 
+  const connect = async () => {
+    setError(null);
+    setConnecting(true);
+    try {
+      const { url } = await startConnect({
+        data: {
+          workspaceId,
+          provider: "whatsapp",
+          origin: window.location.origin,
+          returnTo: `${window.location.pathname}${window.location.search}`,
+        },
+      });
+      window.location.href = url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تعذّر بدء الربط");
+      setConnecting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -87,6 +127,8 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
       </p>
     );
   }
+
+  const phoneList = phonesQuery.data?.phones ?? [];
 
   return (
     <div className="space-y-6">
@@ -107,52 +149,101 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
       ) : null}
 
       <section className="space-y-3 rounded-3xl border border-border p-4">
-        <h3 className="text-sm font-black">١. رقم واتساب للأعمال</h3>
-        <form
-          className="grid gap-3 sm:grid-cols-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            saveMutation.mutate({
-              phoneNumberId: String(f.get("phoneNumberId") ?? "").trim(),
-              token: String(f.get("token") ?? "").trim(),
-            });
-          }}
-        >
-          <input
-            name="phoneNumberId"
-            defaultValue={data?.phoneNumberId ?? ""}
-            placeholder="Phone Number ID"
-            dir="ltr"
-            className={field}
-            required
-          />
-          <input
-            name="token"
-            type="password"
-            placeholder="التوكن الدائم للتطبيق"
-            dir="ltr"
-            className={field}
-            required
-          />
+        <h3 className="text-sm font-black">اربط حساب واتساب للأعمال</h3>
+        <p className="text-sm text-muted-foreground">
+          الربط يتم في نافذة آمنة لدى مزوّد التكاملات — بياناتك لا تُحفظ عندنا إطلاقاً.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            type="submit"
-            disabled={saveMutation.isPending}
-            className="rounded-2xl bg-foreground px-5 py-3 text-sm font-bold text-background disabled:opacity-60 sm:col-span-2 sm:w-fit"
+            type="button"
+            onClick={connect}
+            disabled={connecting}
+            className="rounded-2xl bg-foreground px-5 py-3 text-sm font-bold text-background disabled:opacity-60"
           >
-            {saveMutation.isPending ? "جارٍ التحقق…" : data?.connected ? "تحديث الربط" : "اربط الرقم"}
+            {connecting ? "جارٍ الفتح…" : data?.account ? "إعادة الربط" : "اربط واتساب"}
           </button>
-        </form>
-        {data?.connected ? (
-          <p className="text-sm font-semibold text-jade-deep">
-            مربوط{data.displayNumber ? ` · ${data.displayNumber}` : ""}
-          </p>
+          <button
+            type="button"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="inline-flex items-center gap-2 rounded-2xl border border-border px-4 py-3 text-sm font-bold hover:bg-secondary disabled:opacity-60"
+          >
+            <RefreshCw className={`size-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+            تحديث الحالة
+          </button>
+        </div>
+        {data?.account ? (
+          <p className="text-sm font-semibold text-jade-deep">مربوط · {data.account}</p>
         ) : null}
       </section>
 
+      {data?.account ? (
+        <section className="space-y-3 rounded-3xl border border-border p-4">
+          <h3 className="text-sm font-black">اختر رقم الإرسال</h3>
+          {phonesQuery.isLoading ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> جارٍ قراءة الأرقام…
+            </p>
+          ) : phonesQuery.isError ? (
+            <p className="text-sm text-muted-foreground">
+              تعذّر قراءة الأرقام تلقائياً — أدخل معرّف رقم الإرسال يدوياً بالأسفل.
+            </p>
+          ) : null}
+
+          <ul className="space-y-2">
+            {phoneList.map((p) => (
+              <li
+                key={p.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border px-4 py-3 text-sm"
+              >
+                <span className="min-w-0">
+                  <span dir="ltr">{p.displayNumber || p.id}</span>
+                  {p.name ? ` · ${p.name}` : ""}
+                </span>
+                {data.phoneNumberId === p.id ? (
+                  <span className="font-bold text-jade-deep">مُعتمد</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => selectMutation.mutate(p.id)}
+                    disabled={selectMutation.isPending}
+                    className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-60"
+                  >
+                    اعتمد هذا الرقم
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          <form
+            className="flex flex-wrap gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              selectMutation.mutate(String(f.get("phoneNumberId") ?? "").trim());
+            }}
+          >
+            <input
+              name="phoneNumberId"
+              placeholder="Phone Number ID (يدوياً)"
+              dir="ltr"
+              className={`${field} sm:w-64`}
+            />
+            <button
+              type="submit"
+              disabled={selectMutation.isPending}
+              className="rounded-2xl border border-border px-5 py-3 text-sm font-bold hover:bg-secondary disabled:opacity-60"
+            >
+              {selectMutation.isPending ? "جارٍ التحقق…" : "اعتمد"}
+            </button>
+          </form>
+        </section>
+      ) : null}
+
       {data?.connected ? (
         <section className="space-y-3 rounded-3xl border border-border p-4">
-          <h3 className="text-sm font-black">٢. إعداد الويبهوك في لوحة ميتا</h3>
+          <h3 className="text-sm font-black">إعداد الويبهوك في لوحة ميتا</h3>
           <p className="text-sm text-muted-foreground">
             في تطبيق ميتا ← WhatsApp ← Configuration، ضع الرابط وكلمة التحقق التاليين، ثم فعّل حقل
             الرسائل (messages).
@@ -161,11 +252,16 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
             <CopyRow label="Callback URL" value={WEBHOOK_URL} />
             <CopyRow label="Verify token" value={data.verifyToken} />
           </div>
+          {data.displayNumber ? (
+            <p className="text-sm font-semibold text-jade-deep" dir="ltr">
+              {data.displayNumber}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
       <section className="space-y-3 rounded-3xl border border-border p-4">
-        <h3 className="text-sm font-black">٣. الأرقام المسموح لها بإصدار الأوامر</h3>
+        <h3 className="text-sm font-black">الأرقام المسموح لها بإصدار الأوامر</h3>
         <form
           className="flex flex-wrap gap-2"
           onSubmit={(e) => {
