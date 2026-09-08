@@ -301,15 +301,31 @@ export const askEmployee = createServerFn({ method: "POST" })
         data.message,
       ) || data.message.length > 220;
 
-    const research = await researchFor(
-      data.employeeId,
-      apiKey,
-      { name: workspace.name, industry: workspace.industry },
-      data.message,
-      data.workspaceId,
-      // الطلبات الكبيرة تستحق أدلة أكمل (مقاييس + نتائج بحث + موجز منافسين).
-      longForm ? 22_000 : 12_000,
-    );
+    // نيّة الرسالة: عمل (مخرج جاهز) أم سؤال/دردشة يُجاب عليها فقط بلا فرض خدمات.
+    const { chatIntent, intentBlock } = await import("./chat-intent");
+    const intent = chatIntent(data.message);
+
+    // الوعي اللحظي: الزمن الدقيق دائماً + بحث حيّ عن الأحداث الجارية عند الحاجة.
+    const { nowBlock, needsLiveFacts, liveFactsBlock } = await import("./live-context.server");
+    const timezone =
+      (workspace as { timezone?: string | null }).timezone ??
+      (ws.country === "SA" ? "Asia/Riyadh" : "Africa/Cairo");
+
+    const [research, liveBlock] = await Promise.all([
+      researchFor(
+        data.employeeId,
+        apiKey,
+        { name: workspace.name, industry: workspace.industry },
+        data.message,
+        data.workspaceId,
+        // الطلبات الكبيرة تستحق أدلة أكمل (مقاييس + نتائج بحث + موجز منافسين).
+        longForm ? 22_000 : 12_000,
+      ),
+      needsLiveFacts(data.message)
+        ? liveFactsBlock(data.message).catch(() => "")
+        : Promise.resolve(""),
+    ]);
+
 
     // المنصة التي سمّاها المستخدم بنفسه — تُحترم حرفياً ولا تُبدَّل بغيرها.
     const { requestedPublishTargets, providerLabel } = await import("./platforms");
@@ -358,20 +374,13 @@ export const askEmployee = createServerFn({ method: "POST" })
       })
       .join("\n");
 
-    const today = new Date();
-    const todayAr = today.toLocaleDateString("ar-EG", {
-      timeZone: "Africa/Cairo",
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-
     const system = [
       `أنت ${persona.name}، ${persona.role}`,
       `تعمل داخل منصة «سهل» لصالح العلامة: ${workspace.name} (${workspace.industry}).`,
       `نبرة العلامة: ${workspace.tone}.`,
-      `تاريخ اليوم: ${todayAr} (${today.toISOString().slice(0, 10)}).`,
+      nowBlock(timezone),
+      liveBlock,
+      intentBlock(intent),
       workspace.banned_words?.length
         ? `كلمات ممنوعة تماماً: ${workspace.banned_words.join("، ")}.`
         : "",
@@ -401,12 +410,16 @@ export const askEmployee = createServerFn({ method: "POST" })
       "استخدم عناوين `###` قصيرة لكل محور، وقوائم نقطية من سطر واحد لكل نقطة، وأبرز الأرقام والكلمات المفتاحية بخط عريض.",
       "الفقرة لا تتجاوز ثلاثة أسطر. لا تكرر نفس المعلومة في أكثر من مكان، ولا تكتب مقدمات إنشائية ولا اعتذارات.",
       "البيانات المقارنة (كلمات بحث، منافسون، صفحات، أرقام أداء) تُعرض في جدول Markdown بأعمدة واضحة لا كقائمة طويلة.",
-      "اختم دائماً بقسم `### الخطوة التالية` فيه إجراء واحد محدد قابل للتنفيذ اليوم.",
+      intent === "work"
+        ? "اختم بقسم `### الخطوة التالية` فيه إجراء واحد محدد قابل للتنفيذ اليوم."
+        : "لا تضف قسم «الخطوة التالية» ولا اقتراحات خدمات في هذا الرد.",
       "ممنوع في الرد: JSON أو أقواس تقنية أو أسماء أدوات داخلية أو روابط خام مكررة أو نص إنجليزي غير ضروري أو رموز تعبيرية أكثر من واحد في القسم.",
       data.employeeId === "nour"
         ? "## بنية رد نور\nلطلبات السيو والمحتوى رتّب الرد هكذا: **الخلاصة** ← `### الوضع الحالي` (أرقام الفحص) ← `### الفرص` (جدول كلمات/صفحات مع الحجم والصعوبة والنية) ← `### المنافسون` (ما يفعلونه وما ينقصك) ← `### خطة التنفيذ` (مرتبة بالأثر لا بالترتيب الزمني فقط) ← `### الخطوة التالية`. اذكر مصدر كل رقم بإيجاز (فحص الموقع / بحث الكلمات / Search Console)، وإن غاب مصدر قل ذلك بصراحة في سطر واحد بدل تخمين الأرقام."
         : "",
-      "إن كان طلب المستخدم يحتاج صورة (تصميم، منشور بصري، صورة مقال، كرييتف) فاكتب وصفاً بصرياً إنجليزياً دقيقاً في الحقل image_prompt — وستُولَّد الصورة فعلياً وتُعرض للمستخدم؛ لا تكتفِ بوصفها في النص.",
+      intent === "work"
+        ? "إن كان طلب المستخدم يحتاج صورة (تصميم، منشور بصري، صورة مقال، كرييتف) فاكتب وصفاً بصرياً إنجليزياً دقيقاً في الحقل image_prompt — وستُولَّد الصورة فعلياً وتُعرض للمستخدم؛ لا تكتفِ بوصفها في النص."
+        : "",
       'أعد ردك بصيغة JSON فقط بالشكل: {"reply": "نص ردك للمستخدم بصيغة Markdown", "deliverable": {"title": "عنوان المخرج", "kind": "نوع المخرج", "channel": "المنصة", "body": "نص المخرج الجاهز", "scheduled": "متى يُنفّذ", "image_prompt": "English visual prompt or null"} , "needs_connection": {"provider": "معرّف المنصة مثل instagram أو wordpress أو search-console", "reason": "سبب من 8 كلمات مرتبط بهذه المهمة"} }',
       'ممنوع تماماً ابتكار بنية JSON أخرى. إن طلب المستخدم عدة مخرجات (خطة أسبوع، عدة منشورات، عدة منصات) فاستخدم مصفوفة "deliverables": [ {نفس حقول deliverable}, … ] بدل deliverable، واجعل "reply" ملخصاً بالعربية للخطة (المحاور، التوزيع، مؤشرات القياس) — ولا تضع JSON داخل reply أو داخل body إطلاقاً.',
       'قاعدة إلزامية للخطط: عنصر واحد في deliverables لكل منشور فعلي (يوم × منصة). خطة 3 أيام على 3 منصات = 9 عناصر، لكل عنصر channel صحيح (instagram / linkedin / x) وtitle يذكر اليوم والمنصة وbody يحتوي نص ذلك المنشور وحده مع هاشتاجاته وscheduled بأفضل وقت نشر. ممنوع وضع ملخص الخطة داخل body أو الاكتفاء بمخرج واحد.',
@@ -599,6 +612,12 @@ export const askEmployee = createServerFn({ method: "POST" })
       }
     }
 
+    // في المحادثة الحرة (سؤال/دردشة) لا مخرجات ولا طلبات ربط — إجابة فقط.
+    if (intent !== "work") {
+      deliverables = [];
+      needsConnection = null;
+    }
+
     // الصور تُولَّد فعلياً — لا يبقى المستخدم مع «برومبت» مكتوب فقط.
     // والمستخدم هو صاحب القرار: إيقاف · تلقائي · وصف يكتبه بنفسه (يُترجم حرفياً بلا إضافة).
     let imageUrl: string | null = null;
@@ -608,6 +627,7 @@ export const askEmployee = createServerFn({ method: "POST" })
       imageMode === "manual"
         ? userImagePrompt.length > 2
         : imageMode !== "off" &&
+          intent === "work" &&
           VISUAL_EMPLOYEES.has(data.employeeId) &&
           attachments.every((a) => a.type !== "image");
     if (wantsImage) {
