@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -57,6 +57,13 @@ function SettingsPage() {
   const [saved, setSaved] = useState<string | null>(null);
 
   const doneCount = (tasks ?? []).filter((t) => t.status === "done").length;
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (tabs.some((item) => item.id === requested)) {
+      setTab(requested as (typeof tabs)[number]["id"]);
+    }
+  }, []);
 
   return (
     <AppShell title="الإعدادات" lead="كل ما يخص مساحة عملك وحسابك.">

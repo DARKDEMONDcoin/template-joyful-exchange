@@ -14,6 +14,7 @@ import { ShopifyConnect } from "@/components/app/ShopifyConnect";
 import { WebflowConnect } from "@/components/app/WebflowConnect";
 import { GhostConnect } from "@/components/app/GhostConnect";
 import { MetaDirect } from "@/components/app/MetaDirect";
+import { WhatsAppCommand } from "@/components/app/WhatsAppCommand";
 import { team } from "@/data/team";
 import { integrationStatusLabel } from "@/data/app";
 import { isPipedreamProvider, pipedreamApp } from "@/data/pipedream-apps";
@@ -177,6 +178,11 @@ function IntegrationsPage() {
       setError(
         "أنت في وضع التجربة (بدون تسجيل) — مساحة التجربة مشتركة، فلا يمكن ربط حساباتك الحقيقية بها. سجّل دخولك بحسابك ثم اربط منصاتك.",
       );
+      return;
+    }
+    // واتساب له مسار ربط مخصص لا يفتح موصل Pipedream القديم ذي الحقول اليدوية.
+    if (provider === "whatsapp") {
+      setDetail(provider);
       return;
     }
     if (realProviders.has(provider)) {
@@ -463,7 +469,9 @@ function IntegrationsPage() {
               <div className="min-w-0 flex-1">
                 <h3 className="text-lg font-black">{appLabel(detailRow.provider)}</h3>
                 <p className="text-sm text-muted-foreground">
-                  {isMeta(detailRow.provider)
+                  {detailRow.provider === "whatsapp"
+                    ? "اربط رقم واتساب للأعمال من هنا دون إدخال معرّف الحساب أو توكن يدوي."
+                    : isMeta(detailRow.provider)
                     ? "ربط مباشر عبر تطبيق ميتا الخاص بنا — أذونات نشر كاملة."
                     : realProviders.has(detailRow.provider)
                       ? "ربط مباشر بالمنصة عبر OAuth الرسمي."
@@ -480,24 +488,36 @@ function IntegrationsPage() {
               </button>
             </div>
 
-            {pipedreamApp(detailRow.provider)?.note && !isMeta(detailRow.provider) ? (
+            {pipedreamApp(detailRow.provider)?.note &&
+            !isMeta(detailRow.provider) &&
+            detailRow.provider !== "whatsapp" ? (
               <p className="mt-4 rounded-2xl bg-secondary/60 px-4 py-3 text-sm leading-relaxed text-ink-soft">
                 {pipedreamApp(detailRow.provider)!.note}
               </p>
             ) : null}
 
-            {!isMeta(detailRow.provider) && isPipedreamProvider(detailRow.provider) && pdReady === false ? (
+            {!isMeta(detailRow.provider) &&
+            detailRow.provider !== "whatsapp" &&
+            isPipedreamProvider(detailRow.provider) &&
+            pdReady === false ? (
               <p className="mt-4 rounded-2xl bg-amber/10 px-4 py-3 text-sm font-semibold">
                 وسيط التكاملات غير مفعّل بعد — أضف مفاتيحه لتفعيل هذا الربط.
               </p>
             ) : null}
-            {!isMeta(detailRow.provider) && isPipedreamProvider(detailRow.provider) && pdEnv === "development" ? (
+            {!isMeta(detailRow.provider) &&
+            detailRow.provider !== "whatsapp" &&
+            isPipedreamProvider(detailRow.provider) &&
+            pdEnv === "development" ? (
               <p className="mt-4 rounded-2xl bg-amber/10 px-4 py-3 text-sm font-semibold">
                 الوسيط يعمل بوضع التجريب حالياً — حوّله إلى الوضع الإنتاجي ليربط عملاؤك حساباتهم.
               </p>
             ) : null}
 
-            {isMeta(detailRow.provider) ? (
+            {detailRow.provider === "whatsapp" && workspace ? (
+              <div className="mt-5">
+                <WhatsAppCommand workspaceId={workspace.id} />
+              </div>
+            ) : isMeta(detailRow.provider) ? (
               <div className="mt-4">
                 <MetaDirect
                   workspaceId={workspace?.id}
