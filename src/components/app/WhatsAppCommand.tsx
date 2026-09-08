@@ -34,7 +34,10 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-channel", workspaceId] });
 
   const connectMutation = useMutation({
-    mutationFn: () => connect({ data: { workspaceId } }),
+    mutationFn: () =>
+      connect({
+        data: { workspaceId, returnOrigin: window.location.origin },
+      }),
     onSuccess: (r) => {
       const popup = connectWindow.current;
       if (popup && !popup.closed) {

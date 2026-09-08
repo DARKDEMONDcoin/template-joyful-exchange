@@ -24,6 +24,28 @@ async function assertOwner(
 
 const wsInput = z.object({ workspaceId: z.string().uuid() });
 
+const PROJECT_ID = "541025ee-163e-49a6-8c43-600f36bcb147";
+const ALLOWED_RETURN_HOSTS = new Set([
+  `project--${PROJECT_ID}.lovable.app`,
+  `project--${PROJECT_ID}-dev.lovable.app`,
+  `id-preview--${PROJECT_ID}.lovable.app`,
+  "template-joyful-exchange.lovable.app",
+  "localhost:8080",
+]);
+
+function whatsappReturnTo(origin: string | undefined): string {
+  if (!origin) return "/app/settings?tab=whatsapp";
+  try {
+    const url = new URL(origin);
+    const isLocal = url.protocol === "http:" && url.host === "localhost:8080";
+    const isSecureProjectHost = url.protocol === "https:" && ALLOWED_RETURN_HOSTS.has(url.host);
+    if (!isLocal && !isSecureProjectHost) return "/app/settings?tab=whatsapp";
+    return `${url.origin}/app/settings?tab=whatsapp`;
+  } catch {
+    return "/app/settings?tab=whatsapp";
+  }
+}
+
 /** حالة قناة واتساب: هل هي مربوطة، وما الأرقام المسموح لها. */
 export const whatsappStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -63,7 +85,10 @@ export const startWhatsappConnect = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z
-      .object({ workspaceId: z.string().uuid(), returnTo: z.string().max(300).optional() })
+      .object({
+        workspaceId: z.string().uuid(),
+        returnOrigin: z.string().url().max(300).optional(),
+      })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
@@ -74,7 +99,7 @@ export const startWhatsappConnect = createServerFn({ method: "POST" })
     const state = await meta.signState(
       config,
       data.workspaceId,
-      data.returnTo ?? "/app/settings?tab=whatsapp",
+      whatsappReturnTo(data.returnOrigin),
       "whatsapp",
     );
     return {
