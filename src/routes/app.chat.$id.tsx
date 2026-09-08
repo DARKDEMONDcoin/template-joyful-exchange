@@ -360,6 +360,9 @@ function ChatPage() {
   const [imageMode, setImageMode] = useState<ImageMode>("auto");
   const [imagePrompt, setImagePrompt] = useState("");
   const [aspect, setAspect] = useState<Aspect>("square");
+  /** طول المنشور: اختياري تماماً — الافتراضي «تلقائي» يترك القرار للموظف. */
+  const [postLength, setPostLength] = useState<"auto" | "short" | "medium" | "long">("auto");
+
 
 
   useEffect(() => {
