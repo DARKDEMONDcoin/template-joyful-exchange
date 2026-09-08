@@ -41,6 +41,19 @@ function videoOf(meta: unknown): string | null {
   return typeof v === "string" && /^https?:\/\//.test(v) ? v : null;
 }
 
+/** الوسائط المتعددة المحفوظة مع المنشور (ألبوم/كاروسيل). */
+function mediaOf(meta: unknown): { url: string; kind: "image" | "video" }[] {
+  const raw = meta && typeof meta === "object" ? (meta as { media?: unknown }).media : null;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((m) => {
+    if (!m || typeof m !== "object") return [];
+    const { url, kind } = m as { url?: unknown; kind?: unknown };
+    if (typeof url !== "string" || !/^https?:\/\//.test(url)) return [];
+    return [{ url, kind: kind === "video" ? ("video" as const) : ("image" as const) }];
+  });
+}
+
+
 /** ينشر منشوراً واحداً ويحدّث صفّه — يُستدعى من الطابور ومن النشر الفوري. */
 export async function publishQueuedPost(admin: Admin, id: string): Promise<QueueReport> {
   const { data: post, error } = await admin
@@ -53,6 +66,7 @@ export async function publishQueuedPost(admin: Admin, id: string): Promise<Queue
 
   const attempts = (post.attempts ?? 0) + 1;
   const videoUrl = videoOf(post.meta);
+  const media = mediaOf(post.meta);
 
   try {
     const { publishToPlatform } = await import("./pipedream-publish.server");
@@ -62,7 +76,9 @@ export async function publishQueuedPost(admin: Admin, id: string): Promise<Queue
       text: sanitizePostBody(post.body) || post.body,
       ...(post.image_url ? { imageUrl: post.image_url } : {}),
       ...(videoUrl ? { videoUrl } : {}),
+      ...(media.length ? { media } : {}),
     });
+
 
     await admin
       .from("social_posts")

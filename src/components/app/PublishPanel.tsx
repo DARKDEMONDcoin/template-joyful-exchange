@@ -13,6 +13,8 @@ import {
   Plus,
   Trash2,
   Film,
+  Wand2,
+  X,
 } from "lucide-react";
 import { ConnectNow } from "@/components/app/ConnectNow";
 
@@ -22,7 +24,9 @@ import { useConnectedAccounts, useWorkspace } from "@/lib/data";
 import { adaptForProvider, bestTimeFor, sanitizePostBody } from "@/lib/post-format";
 import { PUBLISHABLE, requestedPublishTargets, providerLabel } from "@/lib/platforms";
 import { publishSocialNow, scheduleSocialPost, uploadSocialMedia } from "@/lib/social-queue.functions";
+import { generateMedia } from "@/lib/media.functions";
 import { bestPostingTimes } from "@/lib/best-time.functions";
+
 
 type BestTimes = {
   source: "audience" | "history" | "baseline";
@@ -115,18 +119,34 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
   const [editing, setEditing] = useState(false);
   useEffect(() => setText(cleanBody(body)), [body]);
 
-  // الوسائط: الصورة المولّدة افتراضياً، ويمكن حذفها أو استبدالها برفع من الجهاز.
+  // الوسائط: أكثر من صورة/فيديو معاً — الصورة المولّدة تُقترح ويمكن حذفها أو إضافة غيرها.
   const generated = imageFromOutput(body);
-  const [media, setMedia] = useState<Media | null>(() =>
-    generated ? { url: generated, kind: "image", label: "الصورة المولّدة" } : null,
+  const [media, setMedia] = useState<Media[]>(() =>
+    generated ? [{ url: generated, kind: "image", label: "الصورة المولّدة" }] : [],
   );
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // توليد صور بالذكاء الاصطناعي: تلقائياً من نص المنشور، أو من وصف يكتبه المستخدم.
+  const makeMedia = useServerFn(generateMedia);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiCount, setAiCount] = useState(1);
+  const [aiAspect, setAiAspect] = useState<"square" | "portrait" | "landscape" | "story">("square");
+  const [aiBusy, setAiBusy] = useState<"auto" | "manual" | null>(null);
+
+  const addMedia = (items: Media[]) =>
+    setMedia((prev) => {
+      const seen = new Set(prev.map((m) => m.url));
+      return [...prev, ...items.filter((m) => !seen.has(m.url))].slice(0, 10);
+    });
+  const dropMedia = (url: string) => setMedia((prev) => prev.filter((m) => m.url !== url));
 
   // مواعيد متعددة: المستخدم يختار الكمية والأوقات التي يريدها.
   const [slots, setSlots] = useState<string[]>(() => [localInputValue(new Date(Date.now() + 3_600_000))]);
   const [busy, setBusy] = useState<"now" | "later" | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
 
   // لوحة النشر اختيارية تماماً: لا تفتح إلا إذا أراد المستخدم نشر هذا الرد.
   const [open, setOpen] = useState(false);
@@ -184,21 +204,61 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
       ),
     );
 
-  const onFile = async (file: File | undefined) => {
-    if (!file) return;
+  const onFiles = async (files: FileList | null) => {
+    const list = Array.from(files ?? []);
+    if (!list.length) return;
     setUploading(true);
     setNote(null);
     try {
-      const fd = new FormData();
-      fd.set("workspaceId", workspaceId);
-      fd.set("file", file);
-      const r = await upload({ data: fd });
-      setMedia({ url: r.url, kind: r.kind, label: r.name });
+      const added: Media[] = [];
+      for (const file of list.slice(0, 10)) {
+        const fd = new FormData();
+        fd.set("workspaceId", workspaceId);
+        fd.set("file", file);
+        const r = await upload({ data: fd });
+        added.push({ url: r.url, kind: r.kind, label: r.name });
+      }
+      addMedia(added);
     } catch (e) {
       setNote(e instanceof Error ? e.message : "تعذّر رفع الملف.");
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  /** يولّد صوراً: تلقائياً من نص المنشور، أو من وصف كتبه المستخدم بنفسه. */
+  const runGenerate = async (mode: "auto" | "manual") => {
+    const prompt =
+      mode === "manual" ? aiPrompt.trim() : text.replace(/#[\p{L}\p{N}_]+/gu, " ").trim().slice(0, 600);
+    if (prompt.length < 3) {
+      setNote(mode === "manual" ? "اكتب وصف الصورة أولاً." : "نص المنشور قصير جداً لتوليد صورة منه.");
+      return;
+    }
+    setAiBusy(mode);
+    setNote(null);
+    try {
+      const r = await makeMedia({
+        data: {
+          workspaceId,
+          prompt,
+          count: mode === "manual" ? aiCount : 1,
+          aspect: aiAspect,
+          mode: mode === "manual" ? "literal" : "enhanced",
+        },
+      });
+      if (!r.urls.length) throw new Error("تعذّر توليد الصورة — أعد المحاولة.");
+      addMedia(
+        r.urls.map((url, i) => ({
+          url,
+          kind: "image" as const,
+          label: mode === "manual" ? `صورتك ${i + 1}` : "صورة مولّدة",
+        })),
+      );
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "تعذّر توليد الصورة.");
+    } finally {
+      setAiBusy(null);
     }
   };
 
@@ -220,12 +280,15 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
 
     const ok: string[] = [];
     const failed: string[] = [];
-    const imageUrl = media?.kind === "image" ? media.url : null;
-    const videoUrl = media?.kind === "video" ? media.url : null;
+    const images = media.filter((m) => m.kind === "image");
+    const videos = media.filter((m) => m.kind === "video");
+    const imageUrl = images[0]?.url ?? null;
+    const videoUrl = videos[0]?.url ?? null;
+    const mediaList = media.map((m) => ({ url: m.url, kind: m.kind }));
 
     for (const at of dates) {
       for (const provider of providers) {
-        if (provider === "instagram" && !media) {
+        if (provider === "instagram" && !media.length) {
           failed.push(`${appLabel(provider)}: يحتاج صورة أو فيديو`);
           continue;
         }
@@ -233,6 +296,7 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
           failed.push(`${appLabel(provider)}: نشر الفيديو متاح على فيسبوك وإنستجرام فقط`);
           continue;
         }
+        const multi = provider === "facebook" || provider === "instagram";
         const base = {
           workspaceId,
           employeeId,
@@ -241,7 +305,9 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
           body: adaptForProvider(provider, text.trim()),
           imageUrl,
           videoUrl,
+          media: multi ? mediaList : imageUrl ? [{ url: imageUrl, kind: "image" as const }] : [],
         };
+
         try {
           if (at) await scheduleSocialPost({ data: { ...base, scheduledAt: at.toISOString() } });
           else await publishSocialNow({ data: base });
@@ -396,7 +462,7 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
         <PostQuality
           text={text}
           providers={active}
-          hasMedia={!!media}
+          hasMedia={media.length > 0}
           bannedWords={workspace?.banned_words ?? []}
           tone={workspace?.tone ?? undefined}
           industry={workspace?.industry ?? undefined}
@@ -406,120 +472,260 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
 
       {/* الوسائط */}
       <div className="mt-4">
-        <span className="text-xs font-bold text-muted-foreground">الصورة / الفيديو</span>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          {media ? (
-            <div className="relative overflow-hidden rounded-xl border border-border bg-card">
-              {media.kind === "image" ? (
-                <img src={media.url} alt="" className="h-24 w-24 object-cover" loading="lazy" />
-              ) : (
-                <video src={media.url} className="h-24 w-24 object-cover" muted playsInline />
-              )}
-              <span className="absolute inset-x-0 bottom-0 truncate bg-foreground/70 px-1 py-0.5 text-[10px] text-background">
-                {media.kind === "video" ? "فيديو" : media.label}
-              </span>
-            </div>
-          ) : (
-            <div className="flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-border text-muted-foreground">
-              <ImageOff className="size-5" />
-            </div>
-          )}
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-bold text-muted-foreground">
+            الصور والفيديو {media.length ? `(${media.length.toLocaleString("en-US")}/10)` : ""}
+          </span>
+          {media.length ? (
             <button
               type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-bold hover:bg-secondary disabled:opacity-60"
+              onClick={() => setMedia([])}
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-muted-foreground hover:text-coral"
             >
-              {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
-              ارفع من جهازك
+              <Trash2 className="size-3.5" /> امسح الكل
             </button>
-            {generated && media?.url !== generated ? (
-              <button
-                type="button"
-                onClick={() => setMedia({ url: generated, kind: "image", label: "الصورة المولّدة" })}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-bold hover:bg-secondary"
-              >
-                <Sparkles className="size-3.5" /> استخدم الصورة المولّدة
-              </button>
-            ) : null}
-            {media ? (
-              <button
-                type="button"
-                onClick={() => setMedia(null)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-bold hover:bg-secondary"
-              >
-                <Trash2 className="size-3.5" /> بدون وسائط
-              </button>
-            ) : null}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
-              className="hidden"
-              onChange={(e) => void onFile(e.target.files?.[0])}
-            />
-          </div>
+          ) : null}
         </div>
-        {media?.kind === "video" ? (
+
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {media.map((item) => (
+            <div key={item.url} className="group relative overflow-hidden rounded-xl border border-border bg-card">
+              {item.kind === "image" ? (
+                <img
+                  src={item.url}
+                  alt=""
+                  className="h-20 w-20 object-cover"
+                  loading="lazy"
+                  onError={() => {
+                    dropMedia(item.url);
+                    setNote("أُزيلت صورة لا يمكن تحميلها — ولّد صورة جديدة أو ارفع واحدة من جهازك.");
+                  }}
+                />
+              ) : (
+                <video src={item.url} className="h-20 w-20 object-cover" muted playsInline />
+              )}
+              <span className="absolute inset-x-0 bottom-0 truncate bg-foreground/70 px-1 py-0.5 text-[10px] text-background">
+                {item.kind === "video" ? "فيديو" : item.label}
+              </span>
+              <button
+                type="button"
+                onClick={() => dropMedia(item.url)}
+                aria-label="إزالة هذه الوسيطة"
+                className="absolute end-1 top-1 grid size-6 place-items-center rounded-full bg-foreground/80 text-background opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ))}
+          {!media.length ? (
+            <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-border text-muted-foreground">
+              <ImageOff className="size-5" />
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading || media.length >= 10}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-bold hover:bg-secondary disabled:opacity-60"
+          >
+            {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
+            ارفع صوراً/فيديو
+          </button>
+          <button
+            type="button"
+            onClick={() => void runGenerate("auto")}
+            disabled={!!aiBusy || media.length >= 10}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-bold hover:bg-secondary disabled:opacity-60"
+          >
+            {aiBusy === "auto" ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+            ولّد صورة من نص المنشور
+          </button>
+          <button
+            type="button"
+            onClick={() => setAiOpen((v) => !v)}
+            aria-expanded={aiOpen}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+              aiOpen ? "border-foreground bg-foreground text-background" : "border-border hover:bg-secondary"
+            }`}
+          >
+            <Wand2 className="size-3.5" /> ولّد صورة بوصفي
+          </button>
+          {generated && !media.some((m) => m.url === generated) ? (
+            <button
+              type="button"
+              onClick={() => addMedia([{ url: generated, kind: "image", label: "الصورة المولّدة" }])}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-bold hover:bg-secondary"
+            >
+              <Sparkles className="size-3.5" /> أعد الصورة المولّدة
+            </button>
+          ) : null}
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
+            className="hidden"
+            onChange={(e) => void onFiles(e.target.files)}
+          />
+        </div>
+
+        {aiOpen ? (
+          <div className="mt-3 rounded-2xl border border-border bg-card/70 p-3">
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              rows={2}
+              dir="auto"
+              placeholder="صف الصورة التي تريدها: مثلاً «طبق كبسة بلحم على طاولة خشبية بإضاءة دافئة»"
+              className="w-full resize-none rounded-xl border border-border bg-background p-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/20"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground">
+                عدد الصور
+                <select
+                  value={aiCount}
+                  onChange={(e) => setAiCount(Number(e.target.value))}
+                  className="rounded-full border border-border bg-card px-2.5 py-1.5 text-xs font-bold text-foreground"
+                >
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-muted-foreground">
+                المقاس
+                <select
+                  value={aiAspect}
+                  onChange={(e) => setAiAspect(e.target.value as typeof aiAspect)}
+                  className="rounded-full border border-border bg-card px-2.5 py-1.5 text-xs font-bold text-foreground"
+                >
+                  <option value="square">مربع (منشور)</option>
+                  <option value="portrait">طولي</option>
+                  <option value="landscape">عرضي</option>
+                  <option value="story">ستوري / ريلز</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => void runGenerate("manual")}
+                disabled={!!aiBusy || !aiPrompt.trim()}
+                className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-1.5 text-xs font-bold text-background disabled:opacity-60"
+              >
+                {aiBusy === "manual" ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
+                ولّد الآن
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {media.some((m) => m.kind === "video") ? (
           <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             <Film className="size-3.5" /> الفيديو يُنشر على فيسبوك وإنستجرام (Reels عمودي حتى ٩٠ ثانية).
           </p>
         ) : null}
-        {active.includes("instagram") && !media ? (
-          <p className="mt-2 text-xs text-muted-foreground">إنستجرام يتطلّب صورة أو فيديو — أبقِ الصورة المولّدة أو ارفع من جهازك.</p>
+        {media.length > 1 ? (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            أكثر من وسيطة تُنشر كألبوم على فيسبوك وكاروسيل على إنستجرام — أما باقي المنصات فتأخذ الصورة الأولى.
+          </p>
+        ) : null}
+        {active.includes("instagram") && !media.length ? (
+          <p className="mt-2 text-xs text-muted-foreground">إنستجرام يتطلّب صورة أو فيديو — ولّد صورة أو ارفع من جهازك.</p>
         ) : null}
       </div>
 
       {/* المواعيد */}
       <div className="mt-4">
-        <span className="text-xs font-bold text-muted-foreground">مواعيد الجدولة (اختياري — أي يوم وأي ساعة تريد)</span>
-        <div className="mt-2 space-y-2">
-          {slots.map((s, i) => (
-            <div key={i} className="flex flex-wrap items-center gap-2">
-              <input
-                type="datetime-local"
-                value={s}
-                onChange={(e) => setSlots((all) => all.map((v, j) => (j === i ? e.target.value : v)))}
-                aria-label={`موعد النشر ${i + 1}`}
-                className="rounded-full border border-border bg-card px-4 py-2 text-sm"
-              />
-              <button type="button" onClick={() => shiftDays(i, 1)} className="rounded-full border border-border px-3 py-2 text-xs font-bold hover:bg-secondary">
-                +يوم
-              </button>
-              <button type="button" onClick={() => shiftDays(i, 7)} className="rounded-full border border-border px-3 py-2 text-xs font-bold hover:bg-secondary">
-                +أسبوع
-              </button>
-              <button
-                type="button"
-                onClick={() => void loadBestTimes()}
-                disabled={!active.length || loadingTimes}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-60"
-              >
-                {loadingTimes ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                أفضل وقت لجمهورك
-              </button>
-              {bestTimes?.slots.length ? (
-                <span className="flex flex-wrap gap-1.5">
-                  {bestTimes.slots.map((slot) => (
-                    <button
-                      key={slot.at}
-                      type="button"
-                      onClick={() => applySlot(i, slot.at)}
-                      className="rounded-full border border-jade/40 bg-jade/10 px-3 py-1.5 text-[11px] font-bold text-jade-deep hover:bg-jade/20"
+        <span className="text-xs font-bold text-muted-foreground">مواعيد الجدولة (اختياري — اختر اليوم والساعة والدقيقة)</span>
+        <div className="mt-2 space-y-3">
+          {slots.map((s, i) => {
+            const [datePart = "", timePart = "00:00"] = s.split("T");
+            const [hourPart = "00", minutePart = "00"] = timePart.split(":");
+            const setPart = (next: string) => setSlots((all) => all.map((v, j) => (j === i ? next : v)));
+            return (
+              <div key={i} className="rounded-2xl border border-border bg-card/60 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    value={datePart}
+                    onChange={(e) => setPart(`${e.target.value}T${hourPart}:${minutePart}`)}
+                    aria-label={`يوم النشر ${i + 1}`}
+                    className="rounded-full border border-border bg-card px-3 py-2 text-sm"
+                  />
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1.5">
+                    <select
+                      value={hourPart}
+                      onChange={(e) => setPart(`${datePart}T${e.target.value}:${minutePart}`)}
+                      aria-label={`ساعة النشر ${i + 1}`}
+                      className="bg-transparent px-1 text-sm font-bold outline-none"
                     >
-                      {WEEKDAYS[slot.weekday]} {String(slot.hour).padStart(2, "0")}:00
+                      {Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0")).map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-muted-foreground">:</span>
+                    <select
+                      value={minutePart}
+                      onChange={(e) => setPart(`${datePart}T${hourPart}:${e.target.value}`)}
+                      aria-label={`دقيقة النشر ${i + 1}`}
+                      className="bg-transparent px-1 text-sm font-bold outline-none"
+                    >
+                      {["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"].map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                  <button type="button" onClick={() => shiftDays(i, 1)} className="rounded-full border border-border px-3 py-2 text-xs font-bold hover:bg-secondary">
+                    +يوم
+                  </button>
+                  <button type="button" onClick={() => shiftDays(i, 7)} className="rounded-full border border-border px-3 py-2 text-xs font-bold hover:bg-secondary">
+                    +أسبوع
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void loadBestTimes()}
+                    disabled={!active.length || loadingTimes}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-60"
+                  >
+                    {loadingTimes ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                    أفضل وقت لجمهورك
+                  </button>
+                  {slots.length > 1 ? (
+                    <button type="button" onClick={() => setSlots((all) => all.filter((_, j) => j !== i))} aria-label="حذف الموعد" className="ms-auto rounded-full p-2 text-muted-foreground hover:bg-secondary">
+                      <Trash2 className="size-4" />
                     </button>
-                  ))}
-                </span>
-              ) : null}
-              {slots.length > 1 ? (
-                <button type="button" onClick={() => setSlots((all) => all.filter((_, j) => j !== i))} aria-label="حذف الموعد" className="rounded-full p-2 text-muted-foreground hover:bg-secondary">
-                  <Trash2 className="size-4" />
-                </button>
-              ) : null}
-            </div>
-          ))}
+                  ) : null}
+                </div>
+                {bestTimes?.slots.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {bestTimes.slots.map((slot) => (
+                      <button
+                        key={slot.at}
+                        type="button"
+                        onClick={() => applySlot(i, slot.at)}
+                        className="rounded-full border border-jade/40 bg-jade/10 px-3 py-1.5 text-[11px] font-bold text-jade-deep hover:bg-jade/20"
+                      >
+                        {WEEKDAYS[slot.weekday]} {String(slot.hour).padStart(2, "0")}:00
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  {Number.isNaN(new Date(s).getTime())
+                    ? "الموعد غير مكتمل — اختر اليوم والساعة."
+                    : new Date(s).toLocaleString("ar-EG", { dateStyle: "full", timeStyle: "short" })}
+                </p>
+              </div>
+            );
+          })}
           {slots.length < 10 ? (
             <button
               type="button"
@@ -530,6 +736,7 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
             </button>
           ) : null}
         </div>
+
         {bestTimes ? <p className="mt-2 text-[11px] text-muted-foreground">{bestTimes.note}</p> : null}
       </div>
 

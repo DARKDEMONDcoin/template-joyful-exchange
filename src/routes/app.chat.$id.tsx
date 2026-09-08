@@ -360,6 +360,9 @@ function ChatPage() {
   const [imageMode, setImageMode] = useState<ImageMode>("auto");
   const [imagePrompt, setImagePrompt] = useState("");
   const [aspect, setAspect] = useState<Aspect>("square");
+  /** طول المنشور: اختياري تماماً — الافتراضي «تلقائي» يترك القرار للموظف. */
+  const [postLength, setPostLength] = useState<"auto" | "short" | "medium" | "long">("auto");
+
 
 
   useEffect(() => {
@@ -412,6 +415,8 @@ function ChatPage() {
           imageMode,
           imagePrompt: imagePrompt.trim() || undefined,
           imageAspect: aspect,
+          postLength,
+
         },
       }),
 
@@ -816,6 +821,22 @@ function ChatPage() {
                     onAspectChange={setAspect}
                     disabled={busy}
                   />
+                  <label className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px] font-bold text-muted-foreground">
+                    الطول
+                    <select
+                      value={postLength}
+                      onChange={(e) => setPostLength(e.target.value as typeof postLength)}
+                      disabled={busy}
+                      aria-label="طول المنشور"
+                      className="bg-transparent text-xs font-bold text-foreground outline-none disabled:opacity-60"
+                    >
+                      <option value="auto">تلقائي</option>
+                      <option value="short">قصير</option>
+                      <option value="medium">متوسط</option>
+                      <option value="long">مطوّل</option>
+                    </select>
+                  </label>
+
                   <SkillPalette
                     skills={employeeSkills}
                     quick={quickSkills}

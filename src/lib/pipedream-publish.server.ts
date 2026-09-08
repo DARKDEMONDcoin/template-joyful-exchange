@@ -123,10 +123,22 @@ export async function publishToPlatform(
     text: string;
     imageUrl?: string;
     videoUrl?: string;
+    /** وسائط متعددة: ألبوم فيسبوك أو كاروسيل إنستجرام. */
+    media?: { url: string; kind: "image" | "video" }[];
   },
 ): Promise<PublishResult> {
   const app = pipedreamApp(params.provider);
   const metaProxy = params.provider === "instagram" || params.provider === "facebook";
+
+  const allMedia = (params.media?.length
+    ? params.media
+    : [
+        ...(params.imageUrl ? [{ url: params.imageUrl, kind: "image" as const }] : []),
+        ...(params.videoUrl ? [{ url: params.videoUrl, kind: "video" as const }] : []),
+      ]
+  ).slice(0, 10);
+  const firstImage = allMedia.find((m) => m.kind === "image")?.url;
+  const firstVideo = allMedia.find((m) => m.kind === "video")?.url;
 
   // المسار الهجين: إن كان ميتا مربوطاً مباشرةً بتطبيقنا الخاص (توكن صفحة محفوظ)،
   // ننشر عبر Graph API مباشرة — أدق وأسرع ولا يقيّده تطبيق الوسيط المشترك.
@@ -136,8 +148,9 @@ export async function publishToPlatform(
     if (await hasMetaDirect(admin, params.workspaceId, provider)) {
       const result = await metaPublish(admin, params.workspaceId, provider, {
         text: params.text,
-        imageUrl: params.imageUrl,
-        videoUrl: params.videoUrl,
+        imageUrl: firstImage,
+        videoUrl: firstVideo,
+        media: allMedia,
       });
       return { provider: params.provider, accountId: `meta:${result.pageId}`, result };
     }
@@ -146,6 +159,7 @@ export async function publishToPlatform(
   if (!metaProxy && (!app?.publishComponent || !app.accountProp)) {
     throw new Error(`النشر المباشر غير متاح بعد على ${app?.label ?? params.provider}.`);
   }
+
 
 
   const config = await pipedreamConfig();
@@ -182,8 +196,9 @@ export async function publishToPlatform(
       account.account_id,
       params.provider as "instagram" | "facebook",
       params.text,
-      params.imageUrl,
-      params.videoUrl,
+      firstImage,
+      firstVideo,
+      allMedia,
     );
     return { provider: params.provider, accountId: account.account_id, result };
   }
@@ -191,7 +206,7 @@ export async function publishToPlatform(
     throw new Error(`النشر المباشر غير متاح بعد على ${params.provider}.`);
   }
 
-  if (params.videoUrl)
+  if (firstVideo)
     throw new Error(
       `نشر الفيديو متاح حالياً على فيسبوك وإنستجرام فقط — على ${app.label} انشر نصاً أو صورة.`,
     );
@@ -204,7 +219,7 @@ export async function publishToPlatform(
     account.account_id,
     params.provider,
     params.text,
-    params.imageUrl,
+    firstImage,
   );
   if (direct !== undefined) {
     return { provider: params.provider, accountId: account.account_id, result: direct };
@@ -214,7 +229,8 @@ export async function publishToPlatform(
     [app.accountProp]: { authProvisionId: account.account_id },
     ...textProps(params.provider, params.text),
   };
-  if (params.imageUrl) Object.assign(props, imageProps(params.provider, params.imageUrl));
+  if (firstImage) Object.assign(props, imageProps(params.provider, firstImage));
+
 
   const result = await runAction(config, {
     workspaceId: params.workspaceId,
@@ -312,6 +328,7 @@ async function publishMeta(
   text: string,
   imageUrl?: string,
   videoUrl?: string,
+  media: { url: string; kind: "image" | "video" }[] = [],
 ): Promise<unknown> {
   // نتحقق أولاً أن الربط يملك صلاحية النشر — وإلا نشرح السبب والحل بوضوح.
   await assertMetaPublishScopes(config, workspaceId, accountId, provider);
@@ -338,6 +355,29 @@ async function publishMeta(
       console.error("[publish] failed to persist Meta page selection", pageSaveError);
   }
 
+  const items = media.length
+    ? media
+    : [
+        ...(imageUrl ? [{ url: imageUrl, kind: "image" as const }] : []),
+        ...(videoUrl ? [{ url: videoUrl, kind: "video" as const }] : []),
+      ];
+  const images = items.filter((m) => m.kind === "image").map((m) => m.url);
+
+  /** ينتظر جاهزية حاوية إنستجرام (فيديو أو كاروسيل). */
+  const waitReady = async (containerId: string) => {
+    for (let i = 0; i < 18; i += 1) {
+      await new Promise((r) => setTimeout(r, 5_000));
+      const st = await proxyRequest<{ status_code?: string }>(config, {
+        workspaceId,
+        accountId,
+        url: `${GRAPH}/${containerId}?fields=status_code&access_token=${page.token}`,
+      });
+      if (st.status_code === "FINISHED") return;
+      if (st.status_code === "ERROR")
+        throw new Error("إنستجرام رفض الوسائط — استخدم MP4 عمودياً (9:16) أقل من ٩٠ ثانية أو صوراً JPG.");
+    }
+  };
+
   if (provider === "facebook") {
     // فيديو من جهاز المستخدم: يُرفع إلى الصفحة عبر رابطه العام.
     if (videoUrl) {
@@ -352,14 +392,40 @@ async function publishMeta(
         }).toString()}`,
       });
     }
-    // مع صورة: نرفعها كصورة حقيقية على /photos (لا كمعاينة رابط في /feed).
-    if (imageUrl) {
+    // أكثر من صورة: ألبوم واحد بمنشور واحد.
+    if (images.length > 1) {
+      const ids: string[] = [];
+      for (const url of images) {
+        const photo = await proxyRequest<{ id?: string }>(config, {
+          workspaceId,
+          accountId,
+          method: "POST",
+          url: `${GRAPH}/${page.id}/photos?${new URLSearchParams({
+            url,
+            published: "false",
+            access_token: page.token,
+          }).toString()}`,
+        });
+        if (photo.id) ids.push(photo.id);
+      }
+      if (!ids.length) throw new Error("تعذّر رفع صور المنشور إلى فيسبوك.");
+      const feed = new URLSearchParams({ message: text, access_token: page.token });
+      ids.forEach((id, i) => feed.set(`attached_media[${i}]`, JSON.stringify({ media_fbid: id })));
+      return proxyRequest<unknown>(config, {
+        workspaceId,
+        accountId,
+        method: "POST",
+        url: `${GRAPH}/${page.id}/feed?${feed.toString()}`,
+      });
+    }
+    // صورة واحدة: نرفعها كصورة حقيقية على /photos (لا كمعاينة رابط في /feed).
+    if (images[0]) {
       return proxyRequest<unknown>(config, {
         workspaceId,
         accountId,
         method: "POST",
         url: `${GRAPH}/${page.id}/photos?${new URLSearchParams({
-          url: imageUrl,
+          url: images[0],
           caption: text,
           published: "true",
           access_token: page.token,
@@ -378,33 +444,52 @@ async function publishMeta(
   }
 
   if (!page.igId) throw new Error("لا يوجد حساب إنستجرام احترافي مرتبط بالصفحة.");
-  if (!imageUrl && !videoUrl) throw new Error("إنستجرام يتطلب صورة أو فيديو مع المنشور.");
+  if (!items.length) throw new Error("إنستجرام يتطلب صورة أو فيديو مع المنشور.");
 
-  const container = await proxyRequest<{ id?: string }>(config, {
-    workspaceId,
-    accountId,
-    method: "POST",
-    url: `${GRAPH}/${page.igId}/media?${new URLSearchParams({
-      ...(videoUrl ? { media_type: "REELS", video_url: videoUrl } : { image_url: imageUrl! }),
+  /** ينشئ حاوية عنصر واحد. */
+  const makeContainer = async (
+    item: { url: string; kind: "image" | "video" },
+    extra: Record<string, string>,
+  ) => {
+    const created = await proxyRequest<{ id?: string }>(config, {
+      workspaceId,
+      accountId,
+      method: "POST",
+      url: `${GRAPH}/${page.igId}/media?${new URLSearchParams({
+        ...(item.kind === "video" ? { video_url: item.url } : { image_url: item.url }),
+        ...extra,
+        access_token: page.token,
+      }).toString()}`,
+    });
+    if (!created.id) throw new Error("تعذّر تجهيز وسائط إنستجرام.");
+    if (item.kind === "video") await waitReady(created.id);
+    return created.id;
+  };
+
+  let creationId: string;
+  if (items.length > 1) {
+    const children: string[] = [];
+    for (const item of items) children.push(await makeContainer(item, { is_carousel_item: "true" }));
+    const carousel = await proxyRequest<{ id?: string }>(config, {
+      workspaceId,
+      accountId,
+      method: "POST",
+      url: `${GRAPH}/${page.igId}/media?${new URLSearchParams({
+        media_type: "CAROUSEL",
+        children: children.join(","),
+        caption: text,
+        access_token: page.token,
+      }).toString()}`,
+    });
+    if (!carousel.id) throw new Error("تعذّر تجهيز الكاروسيل على إنستجرام.");
+    creationId = carousel.id;
+    await waitReady(creationId);
+  } else {
+    const only = items[0]!;
+    creationId = await makeContainer(only, {
       caption: text,
-      access_token: page.token,
-    }).toString()}`,
-  });
-  if (!container.id) throw new Error("تعذّر تجهيز منشور إنستجرام.");
-
-  // الفيديو (Reels) يحتاج وقتاً للمعالجة قبل النشر — ننتظر الجاهزية حتى ٩٠ ثانية.
-  if (videoUrl) {
-    for (let i = 0; i < 18; i += 1) {
-      await new Promise((r) => setTimeout(r, 5_000));
-      const st = await proxyRequest<{ status_code?: string }>(config, {
-        workspaceId,
-        accountId,
-        url: `${GRAPH}/${container.id}?fields=status_code&access_token=${page.token}`,
-      });
-      if (st.status_code === "FINISHED") break;
-      if (st.status_code === "ERROR")
-        throw new Error("إنستجرام رفض الفيديو — استخدم MP4 عمودياً (9:16) أقل من ٩٠ ثانية.");
-    }
+      ...(only.kind === "video" ? { media_type: "REELS" } : {}),
+    });
   }
 
   return proxyRequest<unknown>(config, {
@@ -412,11 +497,12 @@ async function publishMeta(
     accountId,
     method: "POST",
     url: `${GRAPH}/${page.igId}/media_publish?${new URLSearchParams({
-      creation_id: container.id,
+      creation_id: creationId,
       access_token: page.token,
     }).toString()}`,
   });
 }
+
 
 /** اسم حقل النص يختلف بين إجراءات كل منصة. */
 function textProps(provider: string, text: string): Record<string, string> {

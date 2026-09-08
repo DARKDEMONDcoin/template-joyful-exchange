@@ -149,7 +149,10 @@ const input = z.object({
   imageMode: z.enum(["auto", "off", "manual"]).optional(),
   imagePrompt: z.string().max(900).optional(),
   imageAspect: z.enum(["square", "portrait", "landscape", "story"]).optional(),
+  /** طول المنشور المطلوب (اختياري) — «تلقائي» يترك القرار للموظف حسب المنصة. */
+  postLength: z.enum(["auto", "short", "medium", "long"]).optional(),
 });
+
 
 
 /** الموظفون الذين تُولَّد لهم صورة فعلية عند وجود وصف بصري في الرد. */
@@ -428,9 +431,19 @@ export const askEmployee = createServerFn({ method: "POST" })
       data.imageMode === "manual" && data.imagePrompt
         ? `(المستخدم كتب وصف الصورة بنفسه: ${data.imagePrompt.slice(0, 300)} — لا تغيّره.)`
         : "",
+      data.postLength && data.postLength !== "auto"
+        ? `(طول المنشور المطلوب: ${
+            data.postLength === "short"
+              ? "قصير جداً ٣٠–٦٠ كلمة"
+              : data.postLength === "medium"
+                ? "متوسط ٨٠–١٢٠ كلمة"
+                : "مطوّل ١٥٠–٢٢٠ كلمة"
+          } — التزم بهذا المدى ولا تتجاوزه.)`
+        : "",
     ]
       .filter(Boolean)
       .join(" ");
+
     const userTurn = mediaNote ? `${data.message}\n\n${mediaNote}` : data.message;
 
     // خطة ضخمة (عدة أيام × عدة منصات): تُولَّد على دفعات — نداء واحد ضخم يتجاوز مهلة المزوّد.

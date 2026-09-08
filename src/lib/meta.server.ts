@@ -463,12 +463,27 @@ export async function hasMetaDirect(
 
 /* -------------------------------- النشر -------------------------------- */
 
+export type MetaMedia = { url: string; kind: "image" | "video" };
+
 export type MetaPublishInput = {
   text: string;
   imageUrl?: string | undefined;
   videoUrl?: string | undefined;
+  /** وسائط متعددة (ألبوم فيسبوك / كاروسيل إنستجرام). */
+  media?: MetaMedia[] | undefined;
   pageId?: string | undefined;
 };
+
+/** يوحّد الوسائط: القائمة المتعددة أولاً ثم الحقول المفردة القديمة. */
+export function normalizeMedia(input: MetaPublishInput): MetaMedia[] {
+  const list = [...(input.media ?? [])];
+  if (!list.length) {
+    if (input.imageUrl) list.push({ url: input.imageUrl, kind: "image" });
+    if (input.videoUrl) list.push({ url: input.videoUrl, kind: "video" });
+  }
+  const seen = new Set<string>();
+  return list.filter((m) => m.url && !seen.has(m.url) && seen.add(m.url)).slice(0, 10);
+}
 
 export type MetaPublishResult = {
   provider: "facebook" | "instagram";
@@ -479,25 +494,68 @@ export type MetaPublishResult = {
   raw: unknown;
 };
 
-/** نشر على صفحة فيسبوك: نص / صورة (‎/photos‎) / فيديو (‎/videos‎). */
+/** نشر على صفحة فيسبوك: نص / صورة أو ألبوم صور (‎/photos‎) / فيديو (‎/videos‎). */
 export async function publishFacebook(
   conn: MetaConnection,
   input: MetaPublishInput,
 ): Promise<MetaPublishResult> {
+  const media = normalizeMedia(input);
+  const images = media.filter((m) => m.kind === "image").map((m) => m.url);
+  const videos = media.filter((m) => m.kind === "video").map((m) => m.url);
+
+  // ألبوم: نرفع كل صورة غير منشورة ثم ننشر منشوراً واحداً يضمّها كلها.
+  if (images.length > 1) {
+    const ids: string[] = [];
+    for (const url of images) {
+      const photo = await graph<{ id?: string }>(`${GRAPH}/${conn.pageId}/photos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          url,
+          published: "false",
+          access_token: conn.pageToken,
+        }).toString(),
+      });
+      if (photo.id) ids.push(photo.id);
+    }
+    if (!ids.length) throw new Error("تعذّر رفع صور المنشور إلى فيسبوك.");
+    const feedParams = new URLSearchParams({
+      message: input.text,
+      access_token: conn.pageToken,
+    });
+    ids.forEach((id, i) => feedParams.set(`attached_media[${i}]`, JSON.stringify({ media_fbid: id })));
+    const album = await graph<{ id?: string; post_id?: string }>(`${GRAPH}/${conn.pageId}/feed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: feedParams.toString(),
+    });
+    const albumId = album.post_id ?? album.id ?? "";
+    if (!albumId) throw new Error("ميتا لم تُعِد معرّف المنشور — أعد المحاولة.");
+    return {
+      provider: "facebook",
+      postId: albumId,
+      pageId: conn.pageId,
+      pageName: conn.pageName,
+      permalink: `https://www.facebook.com/${albumId}`,
+      raw: album,
+    };
+  }
+
   let endpoint = `${GRAPH}/${conn.pageId}/feed`;
   const params = new URLSearchParams({ access_token: conn.pageToken });
-  if (input.videoUrl) {
+  if (videos[0]) {
     endpoint = `${GRAPH}/${conn.pageId}/videos`;
-    params.set("file_url", input.videoUrl);
+    params.set("file_url", videos[0]);
     params.set("description", input.text);
-  } else if (input.imageUrl) {
+  } else if (images[0]) {
     endpoint = `${GRAPH}/${conn.pageId}/photos`;
-    params.set("url", input.imageUrl);
+    params.set("url", images[0]);
     params.set("caption", input.text);
     params.set("published", "true");
   } else {
     params.set("message", input.text);
   }
+
 
   const res = await graph<{ id?: string; post_id?: string }>(endpoint, {
     method: "POST",
@@ -516,40 +574,72 @@ export async function publishFacebook(
   };
 }
 
-/** نشر على إنستجرام: حاوية ثم media_publish (مع انتظار معالجة الريلز). */
+/** ينتظر جاهزية حاوية إنستجرام (الفيديو والكاروسيل يحتاجان معالجة). */
+async function waitForContainer(conn: MetaConnection, containerId: string): Promise<void> {
+  for (let i = 0; i < 18; i += 1) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    const st = await graph<{ status_code?: string }>(
+      `${GRAPH}/${containerId}?fields=status_code&access_token=${encodeURIComponent(conn.pageToken)}`,
+    );
+    if (st.status_code === "FINISHED") return;
+    if (st.status_code === "ERROR")
+      throw new Error("إنستجرام رفض الوسائط — استخدم MP4 عمودياً (9:16) أقل من ٩٠ ثانية أو صوراً بصيغة JPG.");
+  }
+}
+
+/** نشر على إنستجرام: حاوية (أو كاروسيل) ثم media_publish مع انتظار معالجة الفيديو. */
+
 export async function publishInstagram(
   conn: MetaConnection,
   input: MetaPublishInput,
 ): Promise<MetaPublishResult> {
   if (!conn.igUserId) throw new Error("لا يوجد حساب إنستجرام احترافي مرتبط بهذه الصفحة.");
-  if (!input.imageUrl && !input.videoUrl)
-    throw new Error("إنستجرام يتطلب صورة أو فيديو مع المنشور.");
+  const media = normalizeMedia(input);
+  if (!media.length) throw new Error("إنستجرام يتطلب صورة أو فيديو مع المنشور.");
 
-  const create = new URLSearchParams({ access_token: conn.pageToken, caption: input.text });
-  if (input.videoUrl) {
-    create.set("media_type", "REELS");
-    create.set("video_url", input.videoUrl);
+  /** ينشئ حاوية عنصر واحد وينتظر جاهزيته إن كان فيديو. */
+  const makeContainer = async (item: MetaMedia, extra: Record<string, string> = {}) => {
+    const body = new URLSearchParams({ access_token: conn.pageToken, ...extra });
+    if (item.kind === "video") body.set("video_url", item.url);
+    else body.set("image_url", item.url);
+    const created = await graph<{ id?: string }>(`${GRAPH}/${conn.igUserId}/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    if (!created.id) throw new Error("تعذّر تجهيز وسائط إنستجرام.");
+    if (item.kind === "video") await waitForContainer(conn, created.id);
+    return created.id;
+  };
+
+  let containerId: string;
+  if (media.length > 1) {
+    const children: string[] = [];
+    for (const item of media) children.push(await makeContainer(item, { is_carousel_item: "true" }));
+    const carousel = await graph<{ id?: string }>(`${GRAPH}/${conn.igUserId}/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        media_type: "CAROUSEL",
+        children: children.join(","),
+        caption: input.text,
+        access_token: conn.pageToken,
+      }).toString(),
+    });
+    if (!carousel.id) throw new Error("تعذّر تجهيز الكاروسيل على إنستجرام.");
+    containerId = carousel.id;
   } else {
-    create.set("image_url", input.imageUrl!);
+    const only = media[0]!;
+    containerId = await makeContainer(only, {
+      caption: input.text,
+      ...(only.kind === "video" ? { media_type: "REELS" } : {}),
+    });
   }
-  const container = await graph<{ id?: string }>(`${GRAPH}/${conn.igUserId}/media`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: create.toString(),
-  });
-  if (!container.id) throw new Error("تعذّر تجهيز منشور إنستجرام.");
+  const container = { id: containerId };
 
-  if (input.videoUrl) {
-    for (let i = 0; i < 18; i += 1) {
-      await new Promise((r) => setTimeout(r, 5_000));
-      const st = await graph<{ status_code?: string }>(
-        `${GRAPH}/${container.id}?fields=status_code&access_token=${encodeURIComponent(conn.pageToken)}`,
-      );
-      if (st.status_code === "FINISHED") break;
-      if (st.status_code === "ERROR")
-        throw new Error("إنستجرام رفض الفيديو — استخدم MP4 عمودياً (9:16) أقل من ٩٠ ثانية.");
-    }
-  }
+  // الكاروسيل نفسه يحتاج لحظات ليجهز بعد تجهيز أبنائه.
+  if (media.length > 1) await waitForContainer(conn, container.id);
+
 
   const published = await graph<{ id?: string }>(`${GRAPH}/${conn.igUserId}/media_publish`, {
     method: "POST",
