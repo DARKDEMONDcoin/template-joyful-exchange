@@ -179,7 +179,7 @@ export function PostQuality({ text, providers, hasMedia, bannedWords = [], tone,
             ? weakest.blockers[0]!.hint
             : (weakest.checks.find((c) => c.severity === "warn")?.hint ?? "المنشور مستوفٍ لكل معايير الجودة.")}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }
