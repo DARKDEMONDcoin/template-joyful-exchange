@@ -33,6 +33,29 @@ export const Route = createFileRoute("/api/public/meta/callback")({
           const redirectUri = meta.metaRedirectUri(url.origin);
           const short = await meta.exchangeCode(config, code, redirectUri);
           const { token, expiresAt } = await meta.longLivedToken(config, short);
+
+          // مسار قناة واتساب: نكتشف الحساب والرقم تلقائياً بلا أي إدخال من المستخدم.
+          if (verified.kind === "whatsapp") {
+            const phones = await meta.discoverWabaPhones(config, token);
+            if (!phones.length)
+              return back(verified.returnTo, { wa: "failed", reason: "no-whatsapp-number" });
+            const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+            const { saveWhatsappFromMeta } = await import("@/lib/whatsapp.server");
+            const saved = await saveWhatsappFromMeta(supabaseAdmin, verified.workspaceId, {
+              token,
+              phones,
+            });
+            // اشتراك تطبيقنا في ويبهوك كل حساب — حتى تصل الرسائل بلا إعداد يدوي.
+            for (const wabaId of new Set(phones.map((p) => p.wabaId))) {
+              try {
+                await meta.subscribeWaba(wabaId, token);
+              } catch (e) {
+                console.error("[whatsapp] subscribe failed", e instanceof Error ? e.message : e);
+              }
+            }
+            return back(verified.returnTo, { wa: "connected", number: saved.displayNumber });
+          }
+
           const [scopes, pages] = await Promise.all([
             meta.grantedScopes(token),
             meta.fetchPages(token),
