@@ -398,6 +398,9 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
           providers={active}
           hasMedia={!!media}
           bannedWords={workspace?.banned_words ?? []}
+          tone={workspace?.tone ?? undefined}
+          industry={workspace?.industry ?? undefined}
+          onApply={(next) => setText(next)}
         />
       </div>
 
