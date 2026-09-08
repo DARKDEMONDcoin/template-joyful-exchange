@@ -13,6 +13,8 @@ import {
   Plus,
   Trash2,
   Film,
+  Wand2,
+  X,
 } from "lucide-react";
 import { ConnectNow } from "@/components/app/ConnectNow";
 
@@ -22,7 +24,9 @@ import { useConnectedAccounts, useWorkspace } from "@/lib/data";
 import { adaptForProvider, bestTimeFor, sanitizePostBody } from "@/lib/post-format";
 import { PUBLISHABLE, requestedPublishTargets, providerLabel } from "@/lib/platforms";
 import { publishSocialNow, scheduleSocialPost, uploadSocialMedia } from "@/lib/social-queue.functions";
+import { generateMedia } from "@/lib/media.functions";
 import { bestPostingTimes } from "@/lib/best-time.functions";
+
 
 type BestTimes = {
   source: "audience" | "history" | "baseline";
@@ -115,18 +119,34 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
   const [editing, setEditing] = useState(false);
   useEffect(() => setText(cleanBody(body)), [body]);
 
-  // الوسائط: الصورة المولّدة افتراضياً، ويمكن حذفها أو استبدالها برفع من الجهاز.
+  // الوسائط: أكثر من صورة/فيديو معاً — الصورة المولّدة تُقترح ويمكن حذفها أو إضافة غيرها.
   const generated = imageFromOutput(body);
-  const [media, setMedia] = useState<Media | null>(() =>
-    generated ? { url: generated, kind: "image", label: "الصورة المولّدة" } : null,
+  const [media, setMedia] = useState<Media[]>(() =>
+    generated ? [{ url: generated, kind: "image", label: "الصورة المولّدة" }] : [],
   );
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // توليد صور بالذكاء الاصطناعي: تلقائياً من نص المنشور، أو من وصف يكتبه المستخدم.
+  const makeMedia = useServerFn(generateMedia);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiCount, setAiCount] = useState(1);
+  const [aiAspect, setAiAspect] = useState<"square" | "portrait" | "landscape" | "story">("square");
+  const [aiBusy, setAiBusy] = useState<"auto" | "manual" | null>(null);
+
+  const addMedia = (items: Media[]) =>
+    setMedia((prev) => {
+      const seen = new Set(prev.map((m) => m.url));
+      return [...prev, ...items.filter((m) => !seen.has(m.url))].slice(0, 10);
+    });
+  const dropMedia = (url: string) => setMedia((prev) => prev.filter((m) => m.url !== url));
 
   // مواعيد متعددة: المستخدم يختار الكمية والأوقات التي يريدها.
   const [slots, setSlots] = useState<string[]>(() => [localInputValue(new Date(Date.now() + 3_600_000))]);
   const [busy, setBusy] = useState<"now" | "later" | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
 
   // لوحة النشر اختيارية تماماً: لا تفتح إلا إذا أراد المستخدم نشر هذا الرد.
   const [open, setOpen] = useState(false);
@@ -184,21 +204,61 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
       ),
     );
 
-  const onFile = async (file: File | undefined) => {
-    if (!file) return;
+  const onFiles = async (files: FileList | null) => {
+    const list = Array.from(files ?? []);
+    if (!list.length) return;
     setUploading(true);
     setNote(null);
     try {
-      const fd = new FormData();
-      fd.set("workspaceId", workspaceId);
-      fd.set("file", file);
-      const r = await upload({ data: fd });
-      setMedia({ url: r.url, kind: r.kind, label: r.name });
+      const added: Media[] = [];
+      for (const file of list.slice(0, 10)) {
+        const fd = new FormData();
+        fd.set("workspaceId", workspaceId);
+        fd.set("file", file);
+        const r = await upload({ data: fd });
+        added.push({ url: r.url, kind: r.kind, label: r.name });
+      }
+      addMedia(added);
     } catch (e) {
       setNote(e instanceof Error ? e.message : "تعذّر رفع الملف.");
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  /** يولّد صوراً: تلقائياً من نص المنشور، أو من وصف كتبه المستخدم بنفسه. */
+  const runGenerate = async (mode: "auto" | "manual") => {
+    const prompt =
+      mode === "manual" ? aiPrompt.trim() : text.replace(/#[\p{L}\p{N}_]+/gu, " ").trim().slice(0, 600);
+    if (prompt.length < 3) {
+      setNote(mode === "manual" ? "اكتب وصف الصورة أولاً." : "نص المنشور قصير جداً لتوليد صورة منه.");
+      return;
+    }
+    setAiBusy(mode);
+    setNote(null);
+    try {
+      const r = await makeMedia({
+        data: {
+          workspaceId,
+          prompt,
+          count: mode === "manual" ? aiCount : 1,
+          aspect: aiAspect,
+          mode: mode === "manual" ? "literal" : "enhanced",
+        },
+      });
+      if (!r.urls.length) throw new Error("تعذّر توليد الصورة — أعد المحاولة.");
+      addMedia(
+        r.urls.map((url, i) => ({
+          url,
+          kind: "image" as const,
+          label: mode === "manual" ? `صورتك ${i + 1}` : "صورة مولّدة",
+        })),
+      );
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "تعذّر توليد الصورة.");
+    } finally {
+      setAiBusy(null);
     }
   };
 
@@ -220,12 +280,15 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
 
     const ok: string[] = [];
     const failed: string[] = [];
-    const imageUrl = media?.kind === "image" ? media.url : null;
-    const videoUrl = media?.kind === "video" ? media.url : null;
+    const images = media.filter((m) => m.kind === "image");
+    const videos = media.filter((m) => m.kind === "video");
+    const imageUrl = images[0]?.url ?? null;
+    const videoUrl = videos[0]?.url ?? null;
+    const mediaList = media.map((m) => ({ url: m.url, kind: m.kind }));
 
     for (const at of dates) {
       for (const provider of providers) {
-        if (provider === "instagram" && !media) {
+        if (provider === "instagram" && !media.length) {
           failed.push(`${appLabel(provider)}: يحتاج صورة أو فيديو`);
           continue;
         }
@@ -233,6 +296,7 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
           failed.push(`${appLabel(provider)}: نشر الفيديو متاح على فيسبوك وإنستجرام فقط`);
           continue;
         }
+        const multi = provider === "facebook" || provider === "instagram";
         const base = {
           workspaceId,
           employeeId,
@@ -241,7 +305,9 @@ export function PublishPanel({ workspaceId, employeeId, taskId, channel, request
           body: adaptForProvider(provider, text.trim()),
           imageUrl,
           videoUrl,
+          media: multi ? mediaList : imageUrl ? [{ url: imageUrl, kind: "image" as const }] : [],
         };
+
         try {
           if (at) await scheduleSocialPost({ data: { ...base, scheduledAt: at.toISOString() } });
           else await publishSocialNow({ data: base });

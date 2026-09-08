@@ -32,8 +32,25 @@ const scheduleInput = z.object({
   imageUrl: z.string().url().nullish(),
   /** فيديو مرفوع من جهاز المستخدم (فيسبوك/إنستجرام Reels). */
   videoUrl: z.string().url().nullish(),
+  /** وسائط متعددة: ألبوم فيسبوك أو كاروسيل إنستجرام (حتى ١٠ عناصر). */
+  media: z
+    .array(z.object({ url: z.string().url(), kind: z.enum(["image", "video"]) }))
+    .max(10)
+    .nullish(),
   scheduledAt: z.string().datetime(),
 });
+
+/** يبني حقل meta المحفوظ مع المنشور. */
+function metaOf(data: {
+  videoUrl?: string | null | undefined;
+  media?: { url: string; kind: "image" | "video" }[] | null | undefined;
+}) {
+  return {
+    ...(data.videoUrl ? { videoUrl: data.videoUrl } : {}),
+    ...(data.media?.length ? { media: data.media } : {}),
+  };
+}
+
 
 /** أقصى حجم وسائط يُرفع من الجهاز: ٥٠ ميجابايت. */
 const MAX_UPLOAD = 50 * 1024 * 1024;
@@ -116,7 +133,8 @@ export const scheduleSocialPost = createServerFn({ method: "POST" })
         provider: data.provider,
         body: data.body,
         image_url: data.imageUrl ?? null,
-        meta: data.videoUrl ? { videoUrl: data.videoUrl } : {},
+        meta: metaOf(data),
+
         scheduled_at: data.scheduledAt,
         status: "scheduled",
       })
@@ -141,7 +159,7 @@ export const publishSocialNow = createServerFn({ method: "POST" })
         provider: data.provider,
         body: data.body,
         image_url: data.imageUrl ?? null,
-        meta: data.videoUrl ? { videoUrl: data.videoUrl } : {},
+        meta: metaOf(data),
         scheduled_at: new Date().toISOString(),
         status: "scheduled",
         locked_at: new Date().toISOString(),
