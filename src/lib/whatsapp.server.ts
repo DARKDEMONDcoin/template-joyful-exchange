@@ -24,6 +24,10 @@ export type WhatsappCreds = {
   displayNumber?: string;
   /** الكلمة السرية التي تُدخل في إعداد الويبهوك داخل لوحة ميتا. */
   verifyToken?: string;
+  /** حساب واتساب للأعمال المكتشَف تلقائياً بعد تفويض فيسبوك. */
+  wabaId?: string;
+  /** كل أرقام الإرسال المتاحة — لاختيار الرقم بلا إدخال يدوي. */
+  phones?: { id: string; displayNumber: string; name?: string; wabaId: string }[];
 };
 
 type StoredConfig = Partial<Omit<WhatsappCreds, "workspaceId">>;
@@ -44,11 +48,64 @@ function toCreds(workspaceId: string, config: StoredConfig | undefined): Whatsap
 /** يتحقق من كلمة التحقق المرسلة من ميتا عند تفعيل الويبهوك. */
 export async function verifyTokenMatches(admin: Admin, token: string): Promise<boolean> {
   if (!token) return false;
+  const { getSecrets } = await import("./secrets.server");
+  const secrets = await getSecrets(["WHATSAPP_VERIFY_TOKEN"] as const);
+  if (secrets.WHATSAPP_VERIFY_TOKEN?.trim() === token) return true;
   const { data } = await admin
     .from("integration_credentials")
     .select("config")
     .eq("provider", "whatsapp");
   return (data ?? []).some((row) => (row.config as StoredConfig)?.verifyToken === token);
+}
+
+/**
+ * يحفظ قناة واتساب مباشرةً بعد تفويض فيسبوك — بلا أي إدخال يدوي:
+ * توكن طويل المدى + رقم الإرسال المكتشَف تلقائياً.
+ */
+export async function saveWhatsappFromMeta(
+  admin: Admin,
+  workspaceId: string,
+  params: {
+    token: string;
+    phones: { id: string; displayNumber: string; name?: string; wabaId: string }[];
+  },
+): Promise<{ displayNumber: string; count: number }> {
+  const chosen = params.phones[0]!;
+  const { data: existing } = await admin
+    .from("integration_credentials")
+    .select("config")
+    .eq("workspace_id", workspaceId)
+    .eq("provider", "whatsapp")
+    .maybeSingle();
+  const previous = (existing?.config ?? {}) as StoredConfig;
+
+  const { error } = await admin.from("integration_credentials").upsert(
+    {
+      workspace_id: workspaceId,
+      provider: "whatsapp",
+      config: {
+        phoneNumberId: previous.phoneNumberId &&
+          params.phones.some((p) => p.id === previous.phoneNumberId)
+          ? previous.phoneNumberId
+          : chosen.id,
+        token: params.token,
+        wabaId: chosen.wabaId,
+        displayNumber: chosen.displayNumber,
+        phones: params.phones,
+        verifyToken: previous.verifyToken ?? crypto.randomUUID().replace(/-/g, ""),
+      },
+    },
+    { onConflict: "workspace_id,provider" },
+  );
+  if (error) throw new Error(error.message);
+
+  await admin
+    .from("integrations")
+    .update({ status: "connected", account: chosen.displayNumber || chosen.name || "واتساب" })
+    .eq("workspace_id", workspaceId)
+    .eq("provider", "whatsapp");
+
+  return { displayNumber: chosen.displayNumber, count: params.phones.length };
 }
 
 /** يقرأ بيانات واتساب لمساحة عمل بعينها. */
