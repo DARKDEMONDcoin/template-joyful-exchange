@@ -168,6 +168,7 @@ export async function discoverWabaPhones(
   userToken: string,
 ): Promise<WabaPhone[]> {
   const wabaIds = new Set<string>();
+  const discoveryErrors: string[] = [];
 
   try {
     const debug = await graph<{
@@ -179,25 +180,33 @@ export async function discoverWabaPhones(
     for (const g of debug.data?.granular_scopes ?? []) {
       if (g.scope.startsWith("whatsapp_business")) for (const id of g.target_ids ?? []) wabaIds.add(id);
     }
-  } catch {
-    /* نكمل بالمسار البديل */
+  } catch (error) {
+    discoveryErrors.push(error instanceof Error ? error.message : "تعذّر فحص صلاحيات واتساب");
   }
 
-  if (!wabaIds.size) {
-    try {
-      const businesses = await graph<{ data?: { id: string }[] }>(
-        `${GRAPH}/me/businesses?limit=25&access_token=${encodeURIComponent(userToken)}`,
-      );
-      for (const business of businesses.data ?? []) {
-        const owned = await graph<{ data?: { id: string }[] }>(
-          `${GRAPH}/${business.id}/owned_whatsapp_business_accounts?limit=25` +
-            `&access_token=${encodeURIComponent(userToken)}`,
-        );
-        for (const waba of owned.data ?? []) wabaIds.add(waba.id);
+  try {
+    const businesses = await graph<{ data?: { id: string }[] }>(
+      `${GRAPH}/me/businesses?limit=100&access_token=${encodeURIComponent(userToken)}`,
+    );
+    for (const business of businesses.data ?? []) {
+      // قد يكون الحساب مملوكاً للشركة أو ممنوحاً لها من شركة أخرى؛ كلاهما صالح
+      // للمستخدم المسؤول ولا ينبغي إجباره على إدخال أي معرّف يدوياً.
+      for (const edge of [
+        "owned_whatsapp_business_accounts",
+        "client_whatsapp_business_accounts",
+      ] as const) {
+        try {
+          const accounts = await graph<{ data?: { id: string }[] }>(
+            `${GRAPH}/${business.id}/${edge}?limit=100&access_token=${encodeURIComponent(userToken)}`,
+          );
+          for (const waba of accounts.data ?? []) wabaIds.add(waba.id);
+        } catch (error) {
+          discoveryErrors.push(error instanceof Error ? error.message : `تعذّر فحص ${edge}`);
+        }
       }
-    } catch {
-      /* لا حسابات واتساب */
     }
+  } catch (error) {
+    discoveryErrors.push(error instanceof Error ? error.message : "تعذّر قراءة أنشطة ميتا");
   }
 
   const phones: WabaPhone[] = [];
@@ -216,9 +225,12 @@ export async function discoverWabaPhones(
           ...(p.verified_name ? { name: p.verified_name } : {}),
         });
       }
-    } catch {
-      /* تخطَّ حساباً لا نملك قراءته */
+    } catch (error) {
+      discoveryErrors.push(error instanceof Error ? error.message : `تعذّر قراءة أرقام ${wabaId}`);
     }
+  }
+  if (!phones.length && discoveryErrors.length) {
+    console.error("[whatsapp] WABA discovery failed", [...new Set(discoveryErrors)].join(" | "));
   }
   return phones;
 }
@@ -256,6 +268,8 @@ export function explainMetaError(
   if (!err) return null;
   const message = err.message ?? "";
   const code = err.code;
+  if (/verification code|authorization code/i.test(message))
+    return "انتهت محاولة الربط أو استُخدم رمزها من قبل — ابدأ محاولة ربط جديدة.";
   if (code === 190) return "انتهت صلاحية الربط مع ميتا — أعد ربط الحساب من صفحة التكاملات.";
   if (code === 200 || code === 283 || /pages_manage_posts|permission/i.test(message))
     return (

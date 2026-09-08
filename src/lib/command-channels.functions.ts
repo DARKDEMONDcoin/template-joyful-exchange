@@ -112,6 +112,62 @@ export const startWhatsappConnect = createServerFn({ method: "POST" })
     };
   });
 
+/**
+ * يستخدم تفويض ميتا الموجود بالفعل عندما يكون المستخدم قد ربط فيسبوك ومنح
+ * صلاحيات واتساب؛ وبذلك لا نطلب منه تسجيل الدخول مرتين لنفس حساب الأعمال.
+ */
+export const connectWhatsappFromExistingMeta = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => wsInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const admin = await assertOwner(context.supabase, data.workspaceId);
+    const { data: connections, error } = await admin
+      .from("meta_connections")
+      .select("user_access_token, scopes")
+      .eq("workspace_id", data.workspaceId)
+      .eq("status", "connected")
+      .not("user_access_token", "is", null)
+      .order("updated_at", { ascending: false });
+    if (error) throw new Error(error.message);
+
+    const meta = await import("./meta.server");
+    const config = await meta.metaConfig();
+    if (!config) throw meta.metaMissingConfigError();
+
+    const candidates = (connections ?? []).filter((row) => {
+      const scopes = row.scopes ?? [];
+      return (
+        scopes.includes("whatsapp_business_management") &&
+        scopes.includes("whatsapp_business_messaging")
+      );
+    });
+
+    for (const candidate of candidates) {
+      if (!candidate.user_access_token) continue;
+      const phones = await meta.discoverWabaPhones(config, candidate.user_access_token);
+      if (!phones.length) continue;
+
+      const { saveWhatsappFromMeta } = await import("./whatsapp.server");
+      const saved = await saveWhatsappFromMeta(admin, data.workspaceId, {
+        token: candidate.user_access_token,
+        phones,
+      });
+      for (const wabaId of new Set(phones.map((phone) => phone.wabaId))) {
+        try {
+          await meta.subscribeWaba(wabaId, candidate.user_access_token);
+        } catch (subscribeError) {
+          console.error(
+            "[whatsapp] subscribe existing Meta connection failed",
+            subscribeError instanceof Error ? subscribeError.message : subscribeError,
+          );
+        }
+      }
+      return { connected: true as const, number: saved.displayNumber };
+    }
+
+    return { connected: false as const };
+  });
+
 /** يبدّل رقم الإرسال بين الأرقام المكتشَفة تلقائياً. */
 export const selectWhatsappPhone = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

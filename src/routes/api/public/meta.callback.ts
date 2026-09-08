@@ -27,7 +27,7 @@ export const Route = createFileRoute("/api/public/meta/callback")({
           const title = result.ok ? "تم ربط واتساب" : "تعذّر ربط واتساب";
           const detail = result.ok
             ? "تم الربط بنجاح. يمكنك إغلاق هذه النافذة."
-            : "تعذّر إكمال الربط. يمكنك إغلاق هذه النافذة والمحاولة مجددًا.";
+            : result.reason || "تعذّر إكمال الربط. يمكنك إغلاق هذه النافذة والمحاولة مجددًا.";
           return new Response(
             `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="font-family:system-ui,sans-serif;padding:32px;text-align:center"><h1>${title}</h1><p>${detail}</p><script>window.opener?.postMessage(${message},${origin});window.close();</script></body></html>`,
             {
@@ -47,7 +47,16 @@ export const Route = createFileRoute("/api/public/meta/callback")({
         const error = url.searchParams.get("error_description") ?? url.searchParams.get("error");
         if (error) return back("/app/integrations", { meta: "failed", reason: error.slice(0, 160) });
 
-        const code = url.searchParams.get("code");
+        // اقرأ كود OAuth من الاستعلام الخام. URLSearchParams يعامل علامة + كمسافة
+        // وفق form-urlencoded، وهو ما يفسد بعض أكواد ميتا ويؤدي إلى
+        // "Invalid verification code format" رغم اكتمال موافقة المستخدم.
+        const rawCode = /(?:^|&)code=([^&]*)/.exec(url.search.slice(1))?.[1];
+        let code: string | null = null;
+        try {
+          code = rawCode ? decodeURIComponent(rawCode) : null;
+        } catch {
+          code = null;
+        }
         const state = url.searchParams.get("state") ?? "";
         if (!code) return back("/app/integrations", { meta: "failed", reason: "no-code" });
 
@@ -57,7 +66,20 @@ export const Route = createFileRoute("/api/public/meta/callback")({
         try {
           const redirectUri = meta.metaRedirectUri(url.origin);
           const short = await meta.exchangeCode(config, code, redirectUri);
-          const { token, expiresAt } = await meta.longLivedToken(config, short);
+          let token = short;
+          let expiresAt: string | null = null;
+          try {
+            const longLived = await meta.longLivedToken(config, short);
+            token = longLived.token;
+            expiresAt = longLived.expiresAt;
+          } catch (tokenError) {
+            // نجاح كود OAuth يكفي لإكمال الربط. لا نفشل الرحلة كلها إذا رفضت
+            // ميتا فقط ترقية التوكن إلى طويل المدى؛ يمكن إعادة الربط لاحقاً.
+            console.warn(
+              "[meta] long-lived token exchange failed; using short-lived token",
+              tokenError instanceof Error ? tokenError.message : tokenError,
+            );
+          }
 
           // مسار قناة واتساب: نكتشف الحساب والرقم تلقائياً بلا أي إدخال من المستخدم.
           if (verified.kind === "whatsapp") {

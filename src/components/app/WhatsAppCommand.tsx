@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, RefreshCw, Trash2 } from "lucide-react";
 
 import {
+  connectWhatsappFromExistingMeta,
   createLinkCode,
   removeCommandLink,
   selectWhatsappPhone,
@@ -19,6 +20,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const status = useServerFn(whatsappStatus);
   const connect = useServerFn(startWhatsappConnect);
+  const connectExisting = useServerFn(connectWhatsappFromExistingMeta);
   const selectPhone = useServerFn(selectWhatsappPhone);
   const code = useServerFn(createLinkCode);
   const remove = useServerFn(removeCommandLink);
@@ -26,6 +28,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [newCode, setNewCode] = useState<string | null>(null);
   const connectWindow = useRef<Window | null>(null);
+  const connectStarting = useRef(false);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["whatsapp-channel", workspaceId],
@@ -56,12 +59,24 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
   }, [workspaceId]);
 
   const connectMutation = useMutation({
-    mutationFn: () =>
-      connect({
+    mutationFn: async () => {
+      const existing = await connectExisting({ data: { workspaceId } });
+      if (existing.connected) return { connected: true as const, url: "" };
+      const fresh = await connect({
         data: { workspaceId, returnOrigin: window.location.origin },
-      }),
+      });
+      return { connected: false as const, url: fresh.url };
+    },
     onSuccess: (r) => {
+      connectStarting.current = false;
       const popup = connectWindow.current;
+      if (r.connected) {
+        popup?.close();
+        connectWindow.current = null;
+        setError(null);
+        void invalidate();
+        return;
+      }
       if (popup && !popup.closed) {
         popup.location.replace(r.url);
         popup.focus();
@@ -70,6 +85,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
       setError("اسمح بالنوافذ المنبثقة ثم اضغط «اربط واتساب» مرة أخرى.");
     },
     onError: (e: Error) => {
+      connectStarting.current = false;
       connectWindow.current?.close();
       connectWindow.current = null;
       setError(e.message);
@@ -77,6 +93,8 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
   });
 
   const beginConnect = () => {
+    if (connectStarting.current || connectMutation.isPending) return;
+    connectStarting.current = true;
     setError(null);
     const popup = window.open(
       "about:blank",
@@ -84,7 +102,9 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
       "popup=yes,width=560,height=760,resizable=yes,scrollbars=yes",
     );
     if (!popup) {
-      setError("اسمح بالنوافذ المنبثقة ثم اضغط «اربط واتساب» مرة أخرى.");
+      // نكمل أولاً بمحاولة استخدام تفويض ميتا الموجود؛ قد لا نحتاج النافذة أصلاً.
+      connectWindow.current = null;
+      connectMutation.mutate();
       return;
     }
     connectWindow.current = popup;

@@ -70,7 +70,8 @@ export async function saveWhatsappFromMeta(
     phones: { id: string; displayNumber: string; name?: string; wabaId: string }[];
   },
 ): Promise<{ displayNumber: string; count: number }> {
-  const chosen = params.phones[0]!;
+  const chosen = params.phones[0];
+  if (!chosen) throw new Error("لم نجد رقم واتساب للأعمال في الحساب المصرّح به.");
   const { data: existing } = await admin
     .from("integration_credentials")
     .select("config")
