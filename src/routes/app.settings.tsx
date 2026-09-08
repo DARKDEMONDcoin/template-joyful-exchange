@@ -33,10 +33,12 @@ export const Route = createFileRoute("/app/settings")({
 const tabs = [
   { id: "workspace", label: "مساحة العمل", icon: Building2 },
   { id: "account", label: "حسابك", icon: User },
+  { id: "whatsapp", label: "التحكّم عبر واتساب", icon: MessageCircle },
   { id: "ai", label: "مفاتيح الذكاء", icon: KeyRound },
   { id: "billing", label: "الاشتراك", icon: CreditCard },
   { id: "notifications", label: "التنبيهات", icon: Bell },
 ] as const;
+
 
 const field =
   "w-full rounded-2xl border border-border bg-background px-4 py-3 outline-none focus:border-jade";
