@@ -42,6 +42,33 @@ export function PostQuality({ text, providers, hasMedia, bannedWords = [], tone,
   }, [text, providers, hasMedia, bannedWords]);
 
   const weakest = reports[0];
+
+  const improve = async () => {
+    if (!weakest) return;
+    setBusy(true);
+    setError("");
+    setVariants([]);
+    try {
+      const res = await runImprove({
+        data: {
+          text,
+          provider: weakest.provider,
+          hasMedia,
+          bannedWords,
+          ...(tone ? { tone } : {}),
+          ...(industry ? { industry } : {}),
+          variants: 2,
+        },
+      });
+      if (!res.variants.length) setError("تعذّر توليد نسخة أفضل الآن — جرّب مرة أخرى بعد قليل.");
+      setVariants(res.variants.map((v) => ({ text: v.text, score: v.score, grade: v.grade })));
+    } catch {
+      setError("تعذّر رفع الجودة الآن — تحقّق من الاتصال وأعد المحاولة.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!weakest || !text.trim()) return null;
 
   return (
