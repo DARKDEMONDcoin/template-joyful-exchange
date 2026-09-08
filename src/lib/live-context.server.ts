@@ -61,6 +61,32 @@ function queryOf(text: string): string {
 
 export type LiveRow = { title: string; url: string; snippet: string };
 
+const STOP = new Set([
+  "على","في","من","عن","الى","إلى","مع","هذا","هذه","اللي","التي","الذي","كان","اليوم","امس","أمس",
+  "ماتش","نتيجة","اخر","آخر","أحدث","احدث","the","and","for","with","what","when",
+]);
+
+function norm(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/[ىي]/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[\u064B-\u0652]/g, "");
+}
+
+/** يبقي فقط النتائج التي تخص فعلاً موضوع السؤال — كثير من نسخ البحث تعيد ضجيجاً. */
+function relevantRows(rows: LiveRow[], query: string): LiveRow[] {
+  const tokens = norm(query)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length >= 3 && !STOP.has(t));
+  if (!tokens.length) return rows;
+  return rows.filter((r) => {
+    const hay = norm(`${r.title} ${r.snippet}`);
+    return tokens.some((t) => hay.includes(t));
+  });
+}
+
 /**
  * يجلب حقائق لحظية حقيقية عن موضوع الرسالة. يعيد كتلة جاهزة للحقن أو نصاً فارغاً
  * إن لم تُرجع أي مصادر شيئاً (فيقول الموظف ذلك بصراحة بدل الاختلاق).
@@ -70,35 +96,38 @@ export async function liveFactsBlock(message: string, budgetMs = 13_000): Promis
   if (!q) return "";
   const started = Date.now();
   const rows: LiveRow[] = [];
+  const left = () => budgetMs - (Date.now() - started);
 
   try {
     const { searxPoolSearch } = await import("./searx-pool.server");
-    const found = await searxPoolSearch(q, Math.min(budgetMs, 11_000));
-    rows.push(...found.slice(0, 8));
+    rows.push(...relevantRows(await searxPoolSearch(q, Math.min(budgetMs, 11_000)), q).slice(0, 8));
   } catch {
     /* نتابع بمصدر آخر */
   }
 
-  if (rows.length < 3 && budgetMs - (Date.now() - started) > 4_000) {
+  if (rows.length < 3 && left() > 4_000) {
     try {
       const { serpSearch } = await import("./seo-research.server");
       const serp = await serpSearch(q);
       rows.push(
-        ...serp.slice(0, 6).map((r) => ({
-          title: r.title ?? r.url,
-          url: r.url,
-          snippet: (r as { snippet?: string }).snippet ?? "",
-        })),
+        ...relevantRows(
+          serp.map((r) => ({
+            title: r.title ?? r.url,
+            url: r.url,
+            snippet: (r as { snippet?: string }).snippet ?? "",
+          })),
+          q,
+        ).slice(0, 6),
       );
     } catch {
       /* نتابع */
     }
   }
 
-  if (!rows.length && budgetMs - (Date.now() - started) > 3_000) {
+  if (!rows.length && left() > 3_000) {
     try {
       const { wikipediaSearch } = await import("./searx-pool.server");
-      rows.push(...(await wikipediaSearch(q)).slice(0, 5));
+      rows.push(...relevantRows(await wikipediaSearch(q), q).slice(0, 5));
     } catch {
       /* لا شيء */
     }
@@ -106,6 +135,7 @@ export async function liveFactsBlock(message: string, budgetMs = 13_000): Promis
 
   const seen = new Set<string>();
   const unique = rows.filter((r) => r.url && !seen.has(r.url) && seen.add(r.url)).slice(0, 8);
+
 
   if (!unique.length)
     return [
