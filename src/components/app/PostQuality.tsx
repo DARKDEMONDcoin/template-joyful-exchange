@@ -1,13 +1,19 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, Gauge, XCircle } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { AlertTriangle, CheckCircle2, ChevronDown, Gauge, Loader2, Wand2, XCircle } from "lucide-react";
 
 import { scorePost, type QualityReport } from "@/lib/post-quality";
+import { improvePostQuality } from "@/lib/post-improve.functions";
 
 type Props = {
   text: string;
   providers: string[];
   hasMedia: boolean;
   bannedWords?: string[];
+  tone?: string | undefined;
+  industry?: string | undefined;
+  /** عند تمريرها تظهر أداة رفع الجودة التلقائي. */
+  onApply?: (text: string) => void;
 };
 
 const RING: Record<QualityReport["grade"], string> = {
