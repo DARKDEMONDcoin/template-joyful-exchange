@@ -30,7 +30,7 @@ export const whatsappStatus = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => wsInput.parse(input))
   .handler(async ({ data, context }) => {
     const admin = await assertOwner(context.supabase, data.workspaceId);
-    const [{ data: cred }, { data: links }, { data: account }] = await Promise.all([
+    const [{ data: cred }, { data: links }] = await Promise.all([
       admin
         .from("integration_credentials")
         .select("config")
@@ -43,111 +43,93 @@ export const whatsappStatus = createServerFn({ method: "POST" })
         .eq("workspace_id", data.workspaceId)
         .eq("channel", "whatsapp")
         .order("created_at", { ascending: true }),
-      admin
-        .from("pipedream_accounts")
-        .select("account_id, account_name, status")
-        .eq("workspace_id", data.workspaceId)
-        .eq("provider", "whatsapp")
-        .maybeSingle(),
     ]);
     const config = (cred?.config ?? {}) as {
       phoneNumberId?: string;
       displayNumber?: string;
-      verifyToken?: string;
-      accountId?: string;
+      phones?: { id: string; displayNumber: string; name?: string }[];
     };
     return {
       connected: Boolean(config.phoneNumberId),
       phoneNumberId: config.phoneNumberId ?? "",
       displayNumber: config.displayNumber ?? "",
-      verifyToken: config.verifyToken ?? "",
-      viaPipedream: Boolean(config.accountId),
-      /** حساب واتساب للأعمال المربوط لدى الوسيط (قبل اختيار رقم الإرسال). */
-      account: account?.status === "connected" ? (account.account_name ?? "واتساب") : null,
+      phones: config.phones ?? [],
       links: links ?? [],
     };
   });
 
-/** أرقام الإرسال داخل حساب واتساب للأعمال المربوط عبر Pipedream. */
-export const whatsappPhones = createServerFn({ method: "POST" })
+/** يبدأ ربط واتساب بضغطة واحدة عبر تفويض فيسبوك — بلا أي معرّفات يدوية. */
+export const startWhatsappConnect = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => wsInput.parse(input))
+  .inputValidator((input: unknown) =>
+    z
+      .object({ workspaceId: z.string().uuid(), returnTo: z.string().max(300).optional() })
+      .parse(input),
+  )
   .handler(async ({ data, context }) => {
-    const admin = await assertOwner(context.supabase, data.workspaceId);
-    const { data: account } = await admin
-      .from("pipedream_accounts")
-      .select("account_id")
-      .eq("workspace_id", data.workspaceId)
-      .eq("provider", "whatsapp")
-      .maybeSingle();
-    if (!account?.account_id) {
-      throw new Error("اربط واتساب للأعمال أولاً من زر الربط بالأعلى.");
-    }
-    const { listPipedreamPhones } = await import("./whatsapp.server");
-    const phones = await listPipedreamPhones(data.workspaceId, account.account_id);
-    return { phones };
+    await assertOwner(context.supabase, data.workspaceId);
+    const meta = await import("./meta.server");
+    const config = await meta.metaConfig();
+    if (!config) throw meta.metaMissingConfigError();
+    const state = await meta.signState(
+      config,
+      data.workspaceId,
+      data.returnTo ?? "/app/settings?tab=whatsapp",
+      "whatsapp",
+    );
+    return {
+      url: meta.metaAuthorizeUrl(
+        config,
+        meta.metaRedirectUri(),
+        state,
+        meta.WHATSAPP_SCOPES,
+      ),
+    };
   });
 
-/** يعتمد رقم الإرسال المختار من الحساب المربوط عبر Pipedream. */
+/** يبدّل رقم الإرسال بين الأرقام المكتشَفة تلقائياً. */
 export const selectWhatsappPhone = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z
-      .object({
-        workspaceId: z.string().uuid(),
-        phoneNumberId: z.string().min(5).max(60),
-      })
+      .object({ workspaceId: z.string().uuid(), phoneNumberId: z.string().min(5).max(60) })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
     const admin = await assertOwner(context.supabase, data.workspaceId);
-    const { data: account } = await admin
-      .from("pipedream_accounts")
-      .select("account_id")
-      .eq("workspace_id", data.workspaceId)
-      .eq("provider", "whatsapp")
-      .maybeSingle();
-    if (!account?.account_id) throw new Error("اربط واتساب للأعمال أولاً.");
-
-    const { verifyWhatsappCreds } = await import("./whatsapp.server");
-    const info = await verifyWhatsappCreds({
-      workspaceId: data.workspaceId,
-      accountId: account.account_id,
-      phoneNumberId: data.phoneNumberId.trim(),
-    });
-
-    // كلمة التحقق تُولَّد مرة وتبقى ثابتة حتى لا ينكسر إعداد الويبهوك لاحقاً.
-    const { data: existing } = await admin
+    const { data: cred } = await admin
       .from("integration_credentials")
       .select("config")
       .eq("workspace_id", data.workspaceId)
       .eq("provider", "whatsapp")
       .maybeSingle();
-    const previous = (existing?.config ?? {}) as { verifyToken?: string };
-    const verifyToken = previous.verifyToken ?? crypto.randomUUID().replace(/-/g, "");
+    const config = (cred?.config ?? {}) as {
+      phones?: { id: string; displayNumber: string; wabaId?: string }[];
+    };
+    const phone = (config.phones ?? []).find((p) => p.id === data.phoneNumberId);
+    if (!phone) throw new Error("هذا الرقم غير موجود ضمن حسابك — أعد الربط.");
 
-    const { error } = await admin.from("integration_credentials").upsert(
-      {
-        workspace_id: data.workspaceId,
-        provider: "whatsapp",
+    const { error } = await admin
+      .from("integration_credentials")
+      .update({
         config: {
-          phoneNumberId: data.phoneNumberId.trim(),
-          accountId: account.account_id,
-          displayNumber: info.displayNumber,
-          verifyToken,
+          ...config,
+          phoneNumberId: phone.id,
+          displayNumber: phone.displayNumber,
+          ...(phone.wabaId ? { wabaId: phone.wabaId } : {}),
         },
-      },
-      { onConflict: "workspace_id,provider" },
-    );
+      })
+      .eq("workspace_id", data.workspaceId)
+      .eq("provider", "whatsapp");
     if (error) throw new Error(error.message);
 
     await admin
       .from("integrations")
-      .update({ status: "connected", account: info.displayNumber || info.verifiedName || null })
+      .update({ status: "connected", account: phone.displayNumber })
       .eq("workspace_id", data.workspaceId)
       .eq("provider", "whatsapp");
 
-    return { ok: true as const, displayNumber: info.displayNumber, verifyToken };
+    return { ok: true as const, displayNumber: phone.displayNumber };
   });
 
 /** يولّد كود ربط صالح ١٥ دقيقة يرسله صاحب الرقم من واتساب. */
