@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, RefreshCw, Trash2 } from "lucide-react";
@@ -25,6 +25,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
 
   const [error, setError] = useState<string | null>(null);
   const [newCode, setNewCode] = useState<string | null>(null);
+  const connectWindow = useRef<Window | null>(null);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["whatsapp-channel", workspaceId],
@@ -35,10 +36,38 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
   const connectMutation = useMutation({
     mutationFn: () => connect({ data: { workspaceId } }),
     onSuccess: (r) => {
-      window.location.href = r.url;
+      const popup = connectWindow.current;
+      if (popup && !popup.closed) {
+        popup.location.replace(r.url);
+        popup.focus();
+        return;
+      }
+      setError("اسمح بالنوافذ المنبثقة ثم اضغط «اربط واتساب» مرة أخرى.");
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => {
+      connectWindow.current?.close();
+      connectWindow.current = null;
+      setError(e.message);
+    },
   });
+
+  const beginConnect = () => {
+    setError(null);
+    const popup = window.open(
+      "about:blank",
+      "siraj-whatsapp-connect",
+      "popup=yes,width=560,height=760,resizable=yes,scrollbars=yes",
+    );
+    if (!popup) {
+      setError("اسمح بالنوافذ المنبثقة ثم اضغط «اربط واتساب» مرة أخرى.");
+      return;
+    }
+    connectWindow.current = popup;
+    popup.document.title = "ربط واتساب";
+    popup.document.body.dir = "rtl";
+    popup.document.body.textContent = "جارٍ فتح تسجيل الدخول إلى فيسبوك…";
+    connectMutation.mutate();
+  };
 
   const phoneMutation = useMutation({
     mutationFn: (phoneNumberId: string) => selectPhone({ data: { workspaceId, phoneNumberId } }),
@@ -101,7 +130,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
           <button
             type="button"
             disabled={connectMutation.isPending}
-            onClick={() => connectMutation.mutate()}
+            onClick={beginConnect}
             className="rounded-2xl bg-foreground px-5 py-3 text-sm font-bold text-background disabled:opacity-60"
           >
             {connectMutation.isPending
