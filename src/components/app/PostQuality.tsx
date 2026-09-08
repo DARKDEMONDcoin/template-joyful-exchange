@@ -27,8 +27,12 @@ const RING: Record<QualityReport["grade"], string> = {
  * بطاقة «جودة المنشور قبل النشر»: درجة من ١٠٠ لكل منصة مختارة،
  * مع أسباب واضحة وإرشاد مباشر لرفع الجودة. لا تمنع النشر — تُنبّه فقط.
  */
-export function PostQuality({ text, providers, hasMedia, bannedWords = [] }: Props) {
+export function PostQuality({ text, providers, hasMedia, bannedWords = [], tone, industry, onApply }: Props) {
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [variants, setVariants] = useState<{ text: string; score: number; grade: string }[]>([]);
+  const runImprove = useServerFn(improvePostQuality);
 
   const reports = useMemo(() => {
     const list = providers.length ? providers : ["facebook"];
