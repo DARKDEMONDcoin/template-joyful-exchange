@@ -431,9 +431,19 @@ export const askEmployee = createServerFn({ method: "POST" })
       data.imageMode === "manual" && data.imagePrompt
         ? `(المستخدم كتب وصف الصورة بنفسه: ${data.imagePrompt.slice(0, 300)} — لا تغيّره.)`
         : "",
+      data.postLength && data.postLength !== "auto"
+        ? `(طول المنشور المطلوب: ${
+            data.postLength === "short"
+              ? "قصير جداً ٣٠–٦٠ كلمة"
+              : data.postLength === "medium"
+                ? "متوسط ٨٠–١٢٠ كلمة"
+                : "مطوّل ١٥٠–٢٢٠ كلمة"
+          } — التزم بهذا المدى ولا تتجاوزه.)`
+        : "",
     ]
       .filter(Boolean)
       .join(" ");
+
     const userTurn = mediaNote ? `${data.message}\n\n${mediaNote}` : data.message;
 
     // خطة ضخمة (عدة أيام × عدة منصات): تُولَّد على دفعات — نداء واحد ضخم يتجاوز مهلة المزوّد.
