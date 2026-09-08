@@ -149,7 +149,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
       ) : null}
 
       <section className="space-y-3 rounded-3xl border border-border p-4">
-        <h3 className="text-sm font-black">١. اربط حساب واتساب للأعمال</h3>
+        <h3 className="text-sm font-black">اربط حساب واتساب للأعمال</h3>
         <p className="text-sm text-muted-foreground">
           الربط يتم في نافذة آمنة لدى مزوّد التكاملات — بياناتك لا تُحفظ عندنا إطلاقاً.
         </p>
@@ -179,7 +179,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
 
       {data?.account ? (
         <section className="space-y-3 rounded-3xl border border-border p-4">
-          <h3 className="text-sm font-black">٢. اختر رقم الإرسال</h3>
+          <h3 className="text-sm font-black">اختر رقم الإرسال</h3>
           {phonesQuery.isLoading ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> جارٍ قراءة الأرقام…
@@ -243,7 +243,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
 
       {data?.connected ? (
         <section className="space-y-3 rounded-3xl border border-border p-4">
-          <h3 className="text-sm font-black">٣. إعداد الويبهوك في لوحة ميتا</h3>
+          <h3 className="text-sm font-black">إعداد الويبهوك في لوحة ميتا</h3>
           <p className="text-sm text-muted-foreground">
             في تطبيق ميتا ← WhatsApp ← Configuration، ضع الرابط وكلمة التحقق التاليين، ثم فعّل حقل
             الرسائل (messages).
@@ -261,7 +261,7 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
       ) : null}
 
       <section className="space-y-3 rounded-3xl border border-border p-4">
-        <h3 className="text-sm font-black">٤. الأرقام المسموح لها بإصدار الأوامر</h3>
+        <h3 className="text-sm font-black">الأرقام المسموح لها بإصدار الأوامر</h3>
         <form
           className="flex flex-wrap gap-2"
           onSubmit={(e) => {
