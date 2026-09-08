@@ -612,6 +612,12 @@ export const askEmployee = createServerFn({ method: "POST" })
       }
     }
 
+    // في المحادثة الحرة (سؤال/دردشة) لا مخرجات ولا طلبات ربط — إجابة فقط.
+    if (intent !== "work") {
+      deliverables = [];
+      needsConnection = null;
+    }
+
     // الصور تُولَّد فعلياً — لا يبقى المستخدم مع «برومبت» مكتوب فقط.
     // والمستخدم هو صاحب القرار: إيقاف · تلقائي · وصف يكتبه بنفسه (يُترجم حرفياً بلا إضافة).
     let imageUrl: string | null = null;
@@ -621,6 +627,7 @@ export const askEmployee = createServerFn({ method: "POST" })
       imageMode === "manual"
         ? userImagePrompt.length > 2
         : imageMode !== "off" &&
+          intent === "work" &&
           VISUAL_EMPLOYEES.has(data.employeeId) &&
           attachments.every((a) => a.type !== "image");
     if (wantsImage) {
