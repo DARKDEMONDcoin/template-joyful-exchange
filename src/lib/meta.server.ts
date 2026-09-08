@@ -75,14 +75,24 @@ async function hmac(secret: string, payload: string): Promise<string> {
   return b64url(new Uint8Array(sig));
 }
 
+/** أذونات قناة واتساب للأعمال — ربط بضغطة واحدة بلا إدخال أي معرّفات. */
+export const WHATSAPP_SCOPES = [
+  "whatsapp_business_management",
+  "whatsapp_business_messaging",
+  "business_management",
+] as const;
+
 /** حالة OAuth موقّعة: تحمل مساحة العمل ووقت الإصدار بلا حاجة لجدول مؤقت. */
 export async function signState(
   config: MetaConfig,
   workspaceId: string,
   returnTo: string,
+  kind: "meta" | "whatsapp" = "meta",
 ): Promise<string> {
   const payload = b64url(
-    new TextEncoder().encode(JSON.stringify({ w: workspaceId, t: Date.now(), r: returnTo })),
+    new TextEncoder().encode(
+      JSON.stringify({ w: workspaceId, t: Date.now(), r: returnTo, k: kind }),
+    ),
   );
   return `${payload}.${await hmac(config.appSecret, payload)}`;
 }
@@ -90,7 +100,7 @@ export async function signState(
 export async function verifyState(
   config: MetaConfig,
   state: string,
-): Promise<{ workspaceId: string; returnTo: string } | null> {
+): Promise<{ workspaceId: string; returnTo: string; kind: "meta" | "whatsapp" } | null> {
   const [payload, sig] = state.split(".");
   if (!payload || !sig) return null;
   if ((await hmac(config.appSecret, payload)) !== sig) return null;
@@ -101,10 +111,14 @@ export async function verifyState(
           c.charCodeAt(0),
         ),
       ),
-    ) as { w?: string; t?: number; r?: string };
+    ) as { w?: string; t?: number; r?: string; k?: string };
     if (!json.w || !json.t) return null;
     if (Date.now() - json.t > 30 * 60 * 1000) return null; // صالحة نصف ساعة
-    return { workspaceId: json.w, returnTo: typeof json.r === "string" ? json.r : "/app/integrations" };
+    return {
+      workspaceId: json.w,
+      returnTo: typeof json.r === "string" ? json.r : "/app/integrations",
+      kind: json.k === "whatsapp" ? "whatsapp" : "meta",
+    };
   } catch {
     return null;
   }
@@ -125,14 +139,97 @@ export function metaRedirectUri(_origin?: string): string {
 }
 
 
-export function metaAuthorizeUrl(config: MetaConfig, redirectUri: string, state: string): string {
+export function metaAuthorizeUrl(
+  config: MetaConfig,
+  redirectUri: string,
+  state: string,
+  scopes: readonly string[] = META_SCOPES,
+): string {
   const url = new URL("https://www.facebook.com/v23.0/dialog/oauth");
   url.searchParams.set("client_id", config.appId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", META_SCOPES.join(","));
+  url.searchParams.set("scope", scopes.join(","));
   return url.toString();
+}
+
+/* ------------------------------ اكتشاف واتساب ----------------------------- */
+
+export type WabaPhone = { id: string; displayNumber: string; name?: string; wabaId: string };
+
+/**
+ * يكتشف حسابات واتساب للأعمال وأرقامها من توكن المستخدم مباشرة —
+ * بلا أي معرّفات يكتبها المستخدم. المسار الأول: الأذونات الممنوحة (debug_token)،
+ * وإن لم تُرجِع شيئاً نمرّ على شركات المستخدم.
+ */
+export async function discoverWabaPhones(
+  config: MetaConfig,
+  userToken: string,
+): Promise<WabaPhone[]> {
+  const wabaIds = new Set<string>();
+
+  try {
+    const debug = await graph<{
+      data?: { granular_scopes?: { scope: string; target_ids?: string[] }[] };
+    }>(
+      `${GRAPH}/debug_token?input_token=${encodeURIComponent(userToken)}` +
+        `&access_token=${encodeURIComponent(`${config.appId}|${config.appSecret}`)}`,
+    );
+    for (const g of debug.data?.granular_scopes ?? []) {
+      if (g.scope.startsWith("whatsapp_business")) for (const id of g.target_ids ?? []) wabaIds.add(id);
+    }
+  } catch {
+    /* نكمل بالمسار البديل */
+  }
+
+  if (!wabaIds.size) {
+    try {
+      const businesses = await graph<{ data?: { id: string }[] }>(
+        `${GRAPH}/me/businesses?limit=25&access_token=${encodeURIComponent(userToken)}`,
+      );
+      for (const business of businesses.data ?? []) {
+        const owned = await graph<{ data?: { id: string }[] }>(
+          `${GRAPH}/${business.id}/owned_whatsapp_business_accounts?limit=25` +
+            `&access_token=${encodeURIComponent(userToken)}`,
+        );
+        for (const waba of owned.data ?? []) wabaIds.add(waba.id);
+      }
+    } catch {
+      /* لا حسابات واتساب */
+    }
+  }
+
+  const phones: WabaPhone[] = [];
+  for (const wabaId of wabaIds) {
+    try {
+      const res = await graph<{
+        data?: { id: string; display_phone_number?: string; verified_name?: string }[];
+      }>(
+        `${GRAPH}/${wabaId}/phone_numbers?limit=25&access_token=${encodeURIComponent(userToken)}`,
+      );
+      for (const p of res.data ?? []) {
+        phones.push({
+          id: p.id,
+          displayNumber: p.display_phone_number ?? "",
+          wabaId,
+          ...(p.verified_name ? { name: p.verified_name } : {}),
+        });
+      }
+    } catch {
+      /* تخطَّ حساباً لا نملك قراءته */
+    }
+  }
+  return phones;
+}
+
+/** يشترك تطبيقنا في ويبهوك حساب واتساب حتى تصل الرسائل بلا إعداد يدوي. */
+export async function subscribeWaba(wabaId: string, userToken: string): Promise<void> {
+  await graph(`${GRAPH}/${wabaId}/subscribed_apps`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ access_token: userToken }).toString(),
+  });
 }
 
 async function graph<T>(url: string, init?: RequestInit): Promise<T> {
