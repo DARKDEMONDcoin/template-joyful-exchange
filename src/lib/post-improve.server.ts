@@ -12,8 +12,8 @@ import { PROVIDER_LABEL } from "./platforms";
 export type ImproveInput = {
   text: string;
   provider: string;
-  hasMedia?: boolean;
-  bannedWords?: string[];
+  hasMedia?: boolean | undefined;
+  bannedWords?: string[] | undefined;
   tone?: string | undefined;
   industry?: string | undefined;
   city?: string | undefined;
