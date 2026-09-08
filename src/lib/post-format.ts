@@ -55,7 +55,8 @@ export function sanitizePostBody(input: string | null | undefined): string {
     // روابط الوسائط المؤقتة (تخزين سوبابيز/صور موقّعة) لا مكان لها داخل نص المنشور.
     .replace(/\(?https?:\/\/\S*(?:\/storage\/v1\/|\.(?:jpe?g|png|webp|gif|mp4)(?:\?\S*)?)\)?/gi, "")
     .replace(/^\s*(?:---|\*\*\*|___)\s*$/gm, "")
-    .replace(/^#{1,6}\s*/gm, "")
+    // عناوين ماركداون فقط (# متبوعة بمسافة) — لا نلمس الهاشتاقات مثل #جدة.
+    .replace(/^#{1,6}[ \t]+/gm, "")
     .replace(/\*\*/g, "")
     // بقايا أقواس فارغة بعد إزالة الروابط.
     .replace(/\[\s*\]|\(\s*\)/g, "");
