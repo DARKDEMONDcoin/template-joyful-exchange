@@ -14,6 +14,31 @@ export const Route = createFileRoute("/api/public/meta/callback")({
           for (const [k, v] of Object.entries(params)) target.searchParams.set(k, v);
           return Response.redirect(target.toString(), 302);
         };
+        const finishPopup = (
+          returnTo: string,
+          result: { ok: boolean; number?: string; reason?: string },
+        ) => {
+          const targetOrigin = new URL(returnTo, url.origin).origin;
+          const message = JSON.stringify({ type: "siraj-whatsapp-connect", ...result }).replace(
+            /</g,
+            "\\u003c",
+          );
+          const origin = JSON.stringify(targetOrigin);
+          const title = result.ok ? "تم ربط واتساب" : "تعذّر ربط واتساب";
+          const detail = result.ok
+            ? "تم الربط بنجاح. يمكنك إغلاق هذه النافذة."
+            : "تعذّر إكمال الربط. يمكنك إغلاق هذه النافذة والمحاولة مجددًا.";
+          return new Response(
+            `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="font-family:system-ui,sans-serif;padding:32px;text-align:center"><h1>${title}</h1><p>${detail}</p><script>window.opener?.postMessage(${message},${origin});window.close();</script></body></html>`,
+            {
+              headers: {
+                "content-type": "text/html; charset=utf-8",
+                "cache-control": "no-store",
+                "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+              },
+            },
+          );
+        };
 
         const meta = await import("@/lib/meta.server");
         const config = await meta.metaConfig();
@@ -38,7 +63,10 @@ export const Route = createFileRoute("/api/public/meta/callback")({
           if (verified.kind === "whatsapp") {
             const phones = await meta.discoverWabaPhones(config, token);
             if (!phones.length)
-              return back(verified.returnTo, { wa: "failed", reason: "no-whatsapp-number" });
+              return finishPopup(verified.returnTo, {
+                ok: false,
+                reason: "لم نجد رقم واتساب للأعمال في الحساب المصرّح به.",
+              });
             const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
             const { saveWhatsappFromMeta } = await import("@/lib/whatsapp.server");
             const saved = await saveWhatsappFromMeta(supabaseAdmin, verified.workspaceId, {
@@ -53,7 +81,10 @@ export const Route = createFileRoute("/api/public/meta/callback")({
                 console.error("[whatsapp] subscribe failed", e instanceof Error ? e.message : e);
               }
             }
-            return back(verified.returnTo, { wa: "connected", number: saved.displayNumber });
+            return finishPopup(verified.returnTo, {
+              ok: true,
+              number: saved.displayNumber,
+            });
           }
 
           const [scopes, pages] = await Promise.all([
@@ -78,6 +109,9 @@ export const Route = createFileRoute("/api/public/meta/callback")({
         } catch (e) {
           const message = e instanceof Error ? e.message : "failed";
           console.error("[meta] callback failed", message);
+          if (verified.kind === "whatsapp") {
+            return finishPopup(verified.returnTo, { ok: false, reason: message.slice(0, 160) });
+          }
           return back(verified.returnTo, { meta: "failed", reason: message.slice(0, 160) });
         }
       },

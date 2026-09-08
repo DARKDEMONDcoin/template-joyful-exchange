@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, RefreshCw, Trash2 } from "lucide-react";
@@ -32,6 +32,28 @@ export function WhatsAppCommand({ workspaceId }: { workspaceId: string }) {
     queryFn: () => status({ data: { workspaceId } }),
   });
   const invalidate = () => qc.invalidateQueries({ queryKey: ["whatsapp-channel", workspaceId] });
+
+  useEffect(() => {
+    const receiveResult = (event: MessageEvent) => {
+      if (event.source !== connectWindow.current || event.origin !== window.location.origin) return;
+      const result = event.data as {
+        type?: string;
+        ok?: boolean;
+        number?: string;
+        reason?: string;
+      };
+      if (result.type !== "siraj-whatsapp-connect") return;
+      connectWindow.current = null;
+      if (result.ok) {
+        setError(null);
+        void invalidate();
+      } else {
+        setError(result.reason || "تعذّر إكمال ربط واتساب.");
+      }
+    };
+    window.addEventListener("message", receiveResult);
+    return () => window.removeEventListener("message", receiveResult);
+  }, [workspaceId]);
 
   const connectMutation = useMutation({
     mutationFn: () =>
